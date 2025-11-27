@@ -121,21 +121,14 @@ body,
   background: var(--text-muted);
 }
 
-/* Tree view node styling for react-arborist */
-.tree-node {
-  display: flex;
-  align-items: center;
-  padding: 4px 8px;
-  cursor: pointer;
-  border-radius: 4px;
+/* React-arborist tree container */
+[role="tree"] {
+  padding: 0 4px;
 }
 
-.tree-node:hover {
-  background-color: var(--hover-bg);
-}
-
-.tree-node.selected {
-  background-color: var(--selected-bg);
+/* Ensure smooth transitions for tree nodes */
+[role="treeitem"] {
+  transition: background-color 0.15s ease;
 }
 
 /* Code block styling */

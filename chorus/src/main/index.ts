@@ -120,11 +120,18 @@ app.whenReady().then(() => {
   ipcMain.handle('workspace:list', async () => {
     try {
       const workspaces = getWorkspaces()
-      // Refresh workspace info for each workspace
+      // Refresh git status but preserve agents from storage (they have workspaceId)
       const refreshedWorkspaces = await Promise.all(
         workspaces.map(async (ws) => {
           const info = await getWorkspaceInfo(ws.path)
-          return { ...ws, ...info }
+          // Only update git info, preserve agents from storage
+          return {
+            ...ws,
+            gitBranch: info.gitBranch,
+            isDirty: info.isDirty,
+            hasSystemPrompt: info.hasSystemPrompt
+            // Note: agents are NOT overwritten - they come from storage with workspaceId
+          }
         })
       )
       return { success: true, data: refreshedWorkspaces }

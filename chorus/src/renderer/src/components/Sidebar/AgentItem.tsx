@@ -43,7 +43,6 @@ export function AgentItem({ agent }: AgentItemProps) {
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    console.log('[AgentItem] Clicked:', agent.name, 'workspaceId:', agent.workspaceId)
     selectAgent(agent.id, agent.workspaceId)
   }
 

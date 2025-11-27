@@ -69,15 +69,18 @@ export function MessageList() {
 
       {/* Typing indicator when streaming but no content yet */}
       {isStreaming && !streamingContent && (
-        <div className="flex gap-3">
-          <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center text-accent shrink-0">
+        <div className="flex gap-3 items-start">
+          <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center text-accent shrink-0 animate-pulse">
             <SparklesIcon />
           </div>
           <div className="bg-input rounded-lg rounded-tl-none px-4 py-3">
-            <div className="flex gap-1">
-              <span className="w-2 h-2 rounded-full bg-muted animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-2 h-2 rounded-full bg-muted animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-2 h-2 rounded-full bg-muted animate-bounce" style={{ animationDelay: '300ms' }} />
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-secondary">Thinking</span>
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
             </div>
           </div>
         </div>

@@ -51,7 +51,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   // Load conversations for a workspace/agent
   loadConversations: async (workspaceId: string, agentId: string) => {
-    set({ isLoading: true, error: null })
+    // Clear existing state when switching agents
+    set({
+      isLoading: true,
+      error: null,
+      activeConversationId: null,
+      messages: [],
+      streamingContent: ''
+    })
     try {
       const result = await window.api.conversation.list(workspaceId, agentId)
       if (result.success && result.data) {

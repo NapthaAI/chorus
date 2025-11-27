@@ -75,8 +75,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       if (result.success && result.data) {
         set({ settings: result.data })
       }
-    } catch (error) {
-      console.error('Failed to load settings:', error)
+    } catch {
+      // Silently fail - will use default settings
     }
   },
 
@@ -179,8 +179,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           workspaces: workspaces.map((ws) => (ws.id === id ? result.data! : ws))
         })
       }
-    } catch (error) {
-      console.error('Failed to refresh workspace:', error)
+    } catch {
+      // Silently fail - workspace may have been removed
     }
   },
 

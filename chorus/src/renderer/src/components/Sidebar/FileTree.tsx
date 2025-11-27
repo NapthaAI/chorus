@@ -526,8 +526,8 @@ export function FileTree({ rootPath, onFileSelect, selectedPath }: FileTreeProps
           children: entry.isDirectory ? [] : undefined
         }))
       }
-    } catch (error) {
-      console.error('Failed to load directory:', error)
+    } catch {
+      // Silently fail - return empty array
     }
     return []
   }, [])
@@ -577,25 +577,21 @@ export function FileTree({ rootPath, onFileSelect, selectedPath }: FileTreeProps
 
   // Context menu actions (placeholders for now)
   const handleNewFile = () => {
-    console.log('New file in:', contextMenu.node?.path)
     closeContextMenu()
     // TODO: Implement new file creation
   }
 
   const handleNewFolder = () => {
-    console.log('New folder in:', contextMenu.node?.path)
     closeContextMenu()
     // TODO: Implement new folder creation
   }
 
   const handleRename = () => {
-    console.log('Rename:', contextMenu.node?.path)
     closeContextMenu()
     // TODO: Implement rename
   }
 
   const handleDelete = () => {
-    console.log('Delete:', contextMenu.node?.path)
     closeContextMenu()
     // TODO: Implement delete
   }

@@ -18,6 +18,8 @@ interface ChatStore {
   chatSidebarCollapsed: boolean
   chatSidebarTab: ChatSidebarTab
   error: string | null
+  claudePath: string | null
+  isClaudeChecked: boolean
 
   // Actions
   loadConversations: (workspaceId: string, agentId: string) => Promise<void>
@@ -34,6 +36,7 @@ interface ChatStore {
   initEventListeners: () => () => void
   clearChat: () => void
   setError: (error: string | null) => void
+  checkClaudeAvailable: () => Promise<void>
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -48,6 +51,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   chatSidebarCollapsed: false,
   chatSidebarTab: 'conversations',
   error: null,
+  claudePath: null,
+  isClaudeChecked: false,
 
   // Load conversations for a workspace/agent
   loadConversations: async (workspaceId: string, agentId: string) => {
@@ -220,8 +225,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       await window.api.agent.stop(agentId)
       set({ isStreaming: false, agentStatus: 'ready' })
-    } catch (error) {
-      console.error('Failed to stop agent:', error)
+    } catch {
+      // Silently fail - agent may already be stopped
     }
   },
 
@@ -229,7 +234,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setChatSidebarCollapsed: (collapsed: boolean) => {
     set({ chatSidebarCollapsed: collapsed })
     // Persist to settings
-    window.api.settings.set({ chatSidebarCollapsed: collapsed }).catch(console.error)
+    window.api.settings.set({ chatSidebarCollapsed: collapsed }).catch(() => {})
   },
 
   // Set chat sidebar tab
@@ -268,7 +273,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (result.success && result.data) {
         set({ chatSidebarCollapsed: result.data.chatSidebarCollapsed || false })
       }
-    }).catch(console.error)
+    }).catch(() => {})
+
+    // Check Claude CLI availability
+    get().checkClaudeAvailable()
 
     // Return cleanup function
     return () => {
@@ -293,5 +301,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   // Set error
   setError: (error: string | null) => {
     set({ error })
+  },
+
+  // Check if Claude CLI is available
+  checkClaudeAvailable: async () => {
+    try {
+      const result = await window.api.agent.checkAvailable()
+      if (result.success) {
+        set({ claudePath: result.data || null, isClaudeChecked: true })
+      } else {
+        set({ claudePath: null, isClaudeChecked: true })
+      }
+    } catch {
+      set({ claudePath: null, isClaudeChecked: true })
+    }
   }
 }))

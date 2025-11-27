@@ -9,7 +9,7 @@ All work follows specs in `specifications/`. Each sprint has a `feature.md` (req
 | Sprint | Status | Summary |
 |--------|--------|---------|
 | **0-chorus-setup** | ✅ Complete | Foundation: Electron app, two-pane layout, workspace management, file browser, git integration |
-| **1-claude-code-integration** | 🔄 In Progress | Claude Code agent spawning, streaming output, conversation storage |
+| **1-claude-code-integration** | ✅ Complete | Claude Code agent spawning, streaming output, conversation storage |
 
 **Before implementing**: Read the relevant spec files for requirements and implementation guidance.
 

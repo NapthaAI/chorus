@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useCallback } from 'react'
 import type { Agent, Workspace } from '../../types'
 import { useChatStore } from '../../stores/chat-store'
 import { ChatSidebar } from './ChatSidebar'
@@ -14,7 +14,10 @@ export function ChatView({ agent, workspace }: ChatViewProps) {
     chatSidebarCollapsed,
     loadConversations,
     initEventListeners,
-    clearChat
+    clearChat,
+    createConversation,
+    isStreaming,
+    stopAgent
   } = useChatStore()
 
   // Load conversations when agent changes
@@ -34,6 +37,25 @@ export function ChatView({ agent, workspace }: ChatViewProps) {
       clearChat()
     }
   }, [clearChat])
+
+  // Keyboard shortcuts
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Cmd/Ctrl+N: New conversation
+    if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+      e.preventDefault()
+      createConversation(workspace.id, agent.id)
+    }
+
+    // Escape: Stop streaming (global, not just in input)
+    if (e.key === 'Escape' && isStreaming) {
+      stopAgent(agent.id)
+    }
+  }, [workspace.id, agent.id, createConversation, isStreaming, stopAgent])
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
 
   return (
     <div className="flex h-full bg-main">

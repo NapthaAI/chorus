@@ -2,17 +2,49 @@ import { useState, useEffect } from 'react'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useUIStore } from '../../stores/ui-store'
 
+// Check Icon
+const CheckIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+)
+
+// X Icon
+const XIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+)
+
 export function SettingsDialog() {
   const { settings, setRootWorkspaceDir } = useWorkspaceStore()
   const { closeSettings } = useUIStore()
   const [rootDir, setRootDir] = useState(settings?.rootWorkspaceDir || '')
   const [isSaving, setIsSaving] = useState(false)
+  const [claudePath, setClaudePath] = useState<string | null>(null)
+  const [isCheckingClaude, setIsCheckingClaude] = useState(true)
 
   useEffect(() => {
     if (settings?.rootWorkspaceDir) {
       setRootDir(settings.rootWorkspaceDir)
     }
   }, [settings])
+
+  // Check Claude CLI availability
+  useEffect(() => {
+    const checkClaude = async () => {
+      setIsCheckingClaude(true)
+      try {
+        const result = await window.api.agent.checkAvailable()
+        setClaudePath(result.success && result.data ? result.data : null)
+      } catch {
+        setClaudePath(null)
+      }
+      setIsCheckingClaude(false)
+    }
+    checkClaude()
+  }, [])
 
   const handleSelectDirectory = async () => {
     const result = await window.api.dialog.selectDirectory()
@@ -39,7 +71,41 @@ export function SettingsDialog() {
       <div className="dialog-content" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl font-semibold mb-4">Settings</h2>
 
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* Claude Code Status */}
+          <div>
+            <label className="block text-sm text-secondary mb-2">
+              Claude Code CLI
+            </label>
+            {isCheckingClaude ? (
+              <div className="text-sm text-muted animate-pulse">Checking...</div>
+            ) : claudePath ? (
+              <div className="flex items-center gap-2">
+                <span className="text-green-400"><CheckIcon /></span>
+                <span className="text-sm text-green-300">Installed</span>
+                <span className="text-xs text-muted ml-2 font-mono">{claudePath}</span>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2">
+                <span className="text-red-400 mt-0.5"><XIcon /></span>
+                <div>
+                  <span className="text-sm text-red-300">Not found</span>
+                  <p className="text-xs text-muted mt-1">
+                    Claude Code CLI is required to chat with agents.{' '}
+                    <a
+                      href="https://docs.anthropic.com/en/docs/claude-code"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent hover:underline"
+                    >
+                      Install Claude Code
+                    </a>
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Root workspace directory */}
           <div>
             <label className="block text-sm text-secondary mb-2">
@@ -60,6 +126,39 @@ export function SettingsDialog() {
               <button onClick={handleSelectDirectory} className="btn btn-secondary">
                 Browse
               </button>
+            </div>
+          </div>
+
+          {/* Keyboard Shortcuts */}
+          <div>
+            <label className="block text-sm text-secondary mb-3">
+              Keyboard Shortcuts
+            </label>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between items-center py-1.5 border-b border-default">
+                <span className="text-white">New conversation</span>
+                <kbd className="px-2 py-1 rounded bg-hover text-xs font-mono text-muted">
+                  {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+N
+                </kbd>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b border-default">
+                <span className="text-white">Stop agent</span>
+                <kbd className="px-2 py-1 rounded bg-hover text-xs font-mono text-muted">
+                  Esc
+                </kbd>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b border-default">
+                <span className="text-white">Send message</span>
+                <kbd className="px-2 py-1 rounded bg-hover text-xs font-mono text-muted">
+                  Enter
+                </kbd>
+              </div>
+              <div className="flex justify-between items-center py-1.5">
+                <span className="text-white">New line in message</span>
+                <kbd className="px-2 py-1 rounded bg-hover text-xs font-mono text-muted">
+                  Shift+Enter
+                </kbd>
+              </div>
             </div>
           </div>
         </div>

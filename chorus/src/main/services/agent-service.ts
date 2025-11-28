@@ -211,6 +211,7 @@ export async function sendMessage(
                     timestamp: new Date().toISOString(),
                     toolName: block.name,
                     toolInput: block.input,
+                    toolUseId: block.id, // Store tool_use ID for pairing with tool_result
                     claudeMessage: assistantEvent
                   }
                   appendMessage(conversationId, toolMessage)
@@ -240,6 +241,8 @@ export async function sendMessage(
                     type: 'tool_result',
                     content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
                     timestamp: new Date().toISOString(),
+                    toolUseId: block.tool_use_id, // Link back to tool_use message
+                    isToolError: block.is_error, // Indicate if tool execution failed
                     claudeMessage: userEvent
                   }
                   appendMessage(conversationId, toolResultMessage)

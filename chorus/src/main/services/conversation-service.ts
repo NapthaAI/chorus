@@ -121,6 +121,10 @@ export interface ConversationMessage {
   sessionId?: string
   toolName?: string
   toolInput?: Record<string, unknown>
+  // Tool execution linking - allows pairing tool_use with its tool_result
+  toolUseId?: string
+  // For tool_result: indicates if the tool execution failed
+  isToolError?: boolean
   // Raw Claude Code message (preserved exactly as received)
   claudeMessage?: ClaudeCodeMessage
   // Metadata from result messages

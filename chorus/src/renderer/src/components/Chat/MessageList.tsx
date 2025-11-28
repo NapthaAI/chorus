@@ -1,7 +1,20 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useMemo } from 'react'
 import { useChatStore } from '../../stores/chat-store'
 import { MessageBubble } from './MessageBubble'
 import { MarkdownContent } from './MarkdownContent'
+import { ToolCallsGroup } from './ToolCallsGroup'
+import type { ConversationMessage } from '../../types'
+
+// Tool execution pair
+interface ToolExecution {
+  toolUse: ConversationMessage
+  toolResult: ConversationMessage | null
+}
+
+// Grouped message type for rendering
+type GroupedMessage =
+  | { type: 'tool_calls_group'; executions: ToolExecution[]; key: string }
+  | { type: 'regular'; message: ConversationMessage; key: string }
 
 // SVG Icons
 const SparklesIcon = () => (
@@ -14,6 +27,95 @@ export function MessageList() {
   const { messages, isStreaming, streamingContent, isLoading } = useChatStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
+
+  // Group tool_use messages with their corresponding tool_result, then group consecutive tool executions
+  const groupedMessages = useMemo((): GroupedMessage[] => {
+    const result: GroupedMessage[] = []
+    const processedResultIds = new Set<string>()
+
+    // Build a map of tool_use_id to tool_result for quick lookup (for new messages with IDs)
+    const resultByToolUseId = new Map<string, ConversationMessage>()
+    for (const msg of messages) {
+      if (msg.type === 'tool_result' && msg.toolUseId) {
+        resultByToolUseId.set(msg.toolUseId, msg)
+      }
+    }
+
+    // First pass: pair tool_use with tool_result
+    const pairedMessages: Array<{ type: 'tool_execution'; exec: ToolExecution } | { type: 'regular'; message: ConversationMessage }> = []
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i]
+
+      if (msg.type === 'tool_use') {
+        let toolResult: ConversationMessage | null = null
+
+        if (msg.toolUseId) {
+          // New format: match by toolUseId
+          toolResult = resultByToolUseId.get(msg.toolUseId) || null
+        } else {
+          // Legacy format: match with next tool_result positionally
+          for (let j = i + 1; j < messages.length; j++) {
+            const nextMsg = messages[j]
+            if (nextMsg.type === 'tool_result' && !nextMsg.toolUseId && !processedResultIds.has(nextMsg.uuid)) {
+              toolResult = nextMsg
+              break
+            }
+            if (nextMsg.type === 'tool_use') break
+          }
+        }
+
+        if (toolResult) {
+          processedResultIds.add(toolResult.uuid)
+        }
+
+        pairedMessages.push({
+          type: 'tool_execution',
+          exec: { toolUse: msg, toolResult }
+        })
+      } else if (msg.type === 'tool_result') {
+        // Skip if already grouped with its tool_use
+        if (processedResultIds.has(msg.uuid)) {
+          continue
+        }
+        // Orphaned tool_result - render as regular message
+        pairedMessages.push({ type: 'regular', message: msg })
+      } else {
+        pairedMessages.push({ type: 'regular', message: msg })
+      }
+    }
+
+    // Second pass: group consecutive tool executions
+    let currentToolGroup: ToolExecution[] = []
+
+    for (const item of pairedMessages) {
+      if (item.type === 'tool_execution') {
+        currentToolGroup.push(item.exec)
+      } else {
+        // Flush any pending tool group
+        if (currentToolGroup.length > 0) {
+          result.push({
+            type: 'tool_calls_group',
+            executions: currentToolGroup,
+            key: currentToolGroup[0].toolUse.uuid
+          })
+          currentToolGroup = []
+        }
+        result.push({ type: 'regular', message: item.message, key: item.message.uuid })
+      }
+    }
+
+    // Flush remaining tool group
+    if (currentToolGroup.length > 0) {
+      result.push({
+        type: 'tool_calls_group',
+        executions: currentToolGroup,
+        key: currentToolGroup[0].toolUse.uuid
+      })
+    }
+
+    return result
+  }, [messages])
 
   // Auto-scroll to bottom when new content arrives
   useEffect(() => {
@@ -49,9 +151,17 @@ export function MessageList() {
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-      {messages.map((message) => (
-        <MessageBubble key={message.uuid} message={message} />
-      ))}
+      {groupedMessages.map((item) => {
+        if (item.type === 'tool_calls_group') {
+          return (
+            <ToolCallsGroup
+              key={item.key}
+              executions={item.executions}
+            />
+          )
+        }
+        return <MessageBubble key={item.key} message={item.message} />
+      })}
 
       {/* Streaming content indicator */}
       {isStreaming && streamingContent && (

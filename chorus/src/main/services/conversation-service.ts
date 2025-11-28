@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, unlinkSync, rmdirSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import { getChorusDir } from '../store'
@@ -148,7 +148,7 @@ export interface ConversationSettings {
 export const DEFAULT_CONVERSATION_SETTINGS: ConversationSettings = {
   permissionMode: 'default',
   allowedTools: [], // Empty = Claude Code's default behavior (asks for permission)
-  model: 'claude-sonnet-4-20250514'
+  model: 'default' // Uses alias that resolves to latest Sonnet
 }
 
 // Tools that require permissions - user can enable/disable these
@@ -418,6 +418,7 @@ export function updateConversationSettings(
 
 /**
  * Delete a conversation and its messages file
+ * Cleans up empty directories when the last conversation is deleted
  */
 export function deleteConversation(conversationId: string): boolean {
   const location = getConversationPath(conversationId)
@@ -435,7 +436,6 @@ export function deleteConversation(conversationId: string): boolean {
 
   // Remove from index
   index.conversations.splice(conversationIndex, 1)
-  writeConversationsIndex(workspaceId, agentId, index)
 
   // Delete messages file
   const messagesPath = getMessagesFilePath(workspaceId, agentId, conversationId)
@@ -449,6 +449,43 @@ export function deleteConversation(conversationId: string): boolean {
 
   // Remove from cache
   conversationPathCache.delete(conversationId)
+
+  // Clean up empty directories if no conversations left
+  if (index.conversations.length === 0) {
+    const agentDir = getSessionsDir(workspaceId, agentId)
+    const indexPath = getConversationsIndexPath(workspaceId, agentId)
+
+    // Delete conversations.json
+    try {
+      if (existsSync(indexPath)) {
+        unlinkSync(indexPath)
+      }
+    } catch {
+      // Ignore errors
+    }
+
+    // Remove agent directory if empty
+    try {
+      if (existsSync(agentDir) && readdirSync(agentDir).length === 0) {
+        rmdirSync(agentDir)
+      }
+    } catch {
+      // Ignore errors
+    }
+
+    // Remove workspace directory if empty
+    const workspaceDir = join(getChorusDir(), 'sessions', workspaceId)
+    try {
+      if (existsSync(workspaceDir) && readdirSync(workspaceDir).length === 0) {
+        rmdirSync(workspaceDir)
+      }
+    } catch {
+      // Ignore errors
+    }
+  } else {
+    // Still have conversations, update the index
+    writeConversationsIndex(workspaceId, agentId, index)
+  }
 
   return true
 }

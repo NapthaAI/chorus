@@ -1,22 +1,22 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { ConversationSettings, DEFAULT_CONVERSATION_SETTINGS } from './conversation-service'
+import type { ConversationSettings, PermissionMode } from './conversation-service'
 
 /**
  * Workspace-level default settings for Claude Code
  * Stored in {workspacePath}/.chorus/workspace-settings.json
  */
 export interface WorkspaceSettings {
-  defaultPermissionMode: ConversationSettings['permissionMode']
+  defaultPermissionMode: PermissionMode
   defaultAllowedTools: string[]
   defaultModel: string
 }
 
-// Default workspace settings (falls back to conversation defaults)
+// Default workspace settings (inline to avoid circular import)
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
-  defaultPermissionMode: DEFAULT_CONVERSATION_SETTINGS.permissionMode,
-  defaultAllowedTools: DEFAULT_CONVERSATION_SETTINGS.allowedTools,
-  defaultModel: DEFAULT_CONVERSATION_SETTINGS.model
+  defaultPermissionMode: 'default',
+  defaultAllowedTools: [],
+  defaultModel: 'default' // Uses alias that resolves to latest Sonnet
 }
 
 /**

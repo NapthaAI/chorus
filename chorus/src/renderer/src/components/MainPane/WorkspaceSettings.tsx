@@ -5,14 +5,15 @@ import type { PermissionMode, WorkspaceSettings as WorkspaceSettingsType } from 
 const DEFAULT_SETTINGS: WorkspaceSettingsType = {
   defaultPermissionMode: 'default',
   defaultAllowedTools: [],
-  defaultModel: 'claude-sonnet-4-20250514'
+  defaultModel: 'default'
 }
 
-// Available models
+// Available models (using aliases that resolve to latest versions)
 const MODELS = [
-  { id: 'claude-sonnet-4-20250514', name: 'Sonnet 4', description: 'Fast & capable' },
-  { id: 'claude-opus-4-20250514', name: 'Opus 4', description: 'Most powerful' },
-  { id: 'claude-haiku-3-5-20241022', name: 'Haiku 3.5', description: 'Fastest & cheapest' }
+  { id: 'default', name: 'Default', description: 'Sonnet 4.5 - Recommended' },
+  { id: 'opus', name: 'Opus', description: 'Opus 4.5 - Most capable' },
+  { id: 'sonnet', name: 'Sonnet (1M)', description: 'Sonnet 4.5 - Long context' },
+  { id: 'haiku', name: 'Haiku', description: 'Haiku 4.5 - Fastest' }
 ]
 
 // Permission modes

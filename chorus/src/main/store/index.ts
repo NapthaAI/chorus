@@ -2,7 +2,6 @@ import Store from 'electron-store'
 import { v4 as uuidv4 } from 'uuid'
 import { basename, resolve } from 'path'
 import { existsSync, mkdirSync } from 'fs'
-import { migrateIfNeeded } from '../services/migration-service'
 
 // Types
 export interface Agent {
@@ -66,11 +65,8 @@ function ensureChorusDir(): void {
 }
 
 export function initStore(): void {
-  // Ensure ~/.chorus/ directory exists
+  // Ensure .chorus/ directory exists in repo root
   ensureChorusDir()
-
-  // Run migration if old data exists
-  migrateIfNeeded()
 
   store = new Store<StoreSchema>({
     name: 'config',

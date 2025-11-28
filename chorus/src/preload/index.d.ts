@@ -220,6 +220,12 @@ interface GitCommit {
   date?: string
 }
 
+interface GitBranch {
+  name: string
+  isCurrent: boolean
+  isRemote: boolean
+}
+
 interface CloneProgress {
   phase: string
   percent: number
@@ -267,6 +273,8 @@ interface GitAPI {
   isRepo: (path: string) => Promise<ApiResult<boolean>>
   status: (path: string) => Promise<ApiResult<GitStatus>>
   branch: (path: string) => Promise<ApiResult<string | null>>
+  listBranches: (path: string) => Promise<ApiResult<GitBranch[]>>
+  checkout: (path: string, branch: string) => Promise<ApiResult>
   log: (path: string, count?: number) => Promise<ApiResult<GitCommit[]>>
   clone: (url: string, targetDir: string) => Promise<ApiResult>
   cancelClone: () => Promise<ApiResult>
@@ -322,6 +330,7 @@ export type {
   GitChange,
   GitStatus,
   GitCommit,
+  GitBranch,
   CloneProgress,
   CloneResult,
   ApiResult,

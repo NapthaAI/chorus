@@ -183,3 +183,61 @@ export function cancelClone(): void {
     activeCloneProcess = null
   }
 }
+
+export interface GitBranch {
+  name: string
+  isCurrent: boolean
+  isRemote: boolean
+}
+
+/**
+ * List all branches (local and remote)
+ */
+export async function listBranches(path: string): Promise<GitBranch[]> {
+  try {
+    // Get local branches
+    const localOutput = runGit(path, 'branch')
+    const localBranches: GitBranch[] = localOutput
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const isCurrent = line.startsWith('*')
+        const name = line.replace(/^\*?\s+/, '').trim()
+        return { name, isCurrent, isRemote: false }
+      })
+
+    // Get remote branches
+    const remoteOutput = runGit(path, 'branch -r')
+    const remoteBranches: GitBranch[] = remoteOutput
+      .split('\n')
+      .filter(Boolean)
+      .filter((line) => !line.includes('HEAD'))
+      .map((line) => {
+        const name = line.trim()
+        return { name, isCurrent: false, isRemote: true }
+      })
+
+    return [...localBranches, ...remoteBranches]
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Checkout a branch
+ */
+export async function checkout(path: string, branch: string): Promise<void> {
+  // If it's a remote branch (e.g., origin/feature), create a local tracking branch
+  if (branch.includes('/')) {
+    const localBranchName = branch.split('/').slice(1).join('/')
+    try {
+      // Try to checkout existing local branch first
+      runGit(path, `checkout ${localBranchName}`)
+    } catch {
+      // Create a new local branch tracking the remote
+      runGit(path, `checkout -b ${localBranchName} ${branch}`)
+    }
+  } else {
+    runGit(path, `checkout ${branch}`)
+  }
+}

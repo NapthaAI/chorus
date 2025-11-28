@@ -22,7 +22,7 @@ import {
   getWorkspaceInfo
 } from './services/workspace-service'
 import { listDirectory, readFile } from './services/fs-service'
-import { isRepo, getStatus, getBranch, getLog, clone, cancelClone } from './services/git-service'
+import { isRepo, getStatus, getBranch, getLog, clone, cancelClone, listBranches, checkout } from './services/git-service'
 import {
   listConversations,
   createConversation,
@@ -283,6 +283,24 @@ app.whenReady().then(() => {
   ipcMain.handle('git:cancel-clone', async () => {
     cancelClone()
     return { success: true }
+  })
+
+  ipcMain.handle('git:list-branches', async (_event, path: string) => {
+    try {
+      const result = await listBranches(path)
+      return { success: true, data: result }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:checkout', async (_event, path: string, branch: string) => {
+    try {
+      await checkout(path, branch)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
   })
 
   // ============================================

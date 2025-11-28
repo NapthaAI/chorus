@@ -1,4 +1,5 @@
 import { GitPanel } from './GitPanel'
+import { BranchList } from './BranchList'
 import { useUIStore } from '../../stores/ui-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import type { Workspace } from '../../types'
@@ -14,11 +15,6 @@ const RepoIcon = () => (
   </svg>
 )
 
-const GitBranchIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-    <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z" />
-  </svg>
-)
 
 const DiffIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -68,7 +64,11 @@ function getInitials(name: string): string {
 
 export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
   const { setSidebarTab } = useUIStore()
-  const { selectAgent } = useWorkspaceStore()
+  const { selectAgent, refreshWorkspace } = useWorkspaceStore()
+
+  const handleBranchChange = async () => {
+    await refreshWorkspace(workspace.id)
+  }
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -85,14 +85,6 @@ export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
 
       {/* Status badges */}
       <div className="flex flex-wrap gap-2 mb-6">
-        {workspace.gitBranch && (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-input border border-default text-sm">
-            <span className="text-muted">
-              <GitBranchIcon />
-            </span>
-            <span className="font-medium">{workspace.gitBranch}</span>
-          </div>
-        )}
         {workspace.isDirty && (
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-sm text-amber-400">
             <DiffIcon />
@@ -108,6 +100,19 @@ export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
           </div>
         )}
       </div>
+
+      {/* Branches section */}
+      {workspace.gitBranch && (
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold text-secondary uppercase tracking-wider mb-3">
+            Branches
+          </h2>
+          <BranchList
+            workspacePath={workspace.path}
+            onBranchChange={handleBranchChange}
+          />
+        </div>
+      )}
 
       {/* Agents section */}
       <div className="mb-8">

@@ -7,6 +7,10 @@ export interface DirectoryEntry {
   isDirectory: boolean
 }
 
+export interface WalkEntry extends DirectoryEntry {
+  relativePath: string // Path relative to walk root for display
+}
+
 // Max file size to read (1MB)
 const MAX_FILE_SIZE = 1024 * 1024
 
@@ -110,4 +114,62 @@ export async function readFile(filePath: string): Promise<string> {
  */
 export async function writeFile(filePath: string, content: string): Promise<void> {
   writeFileSync(filePath, content, 'utf-8')
+}
+
+/**
+ * Recursively walk directory and return all files/folders up to maxDepth
+ */
+export async function walkDirectory(
+  rootPath: string,
+  maxDepth: number = 5
+): Promise<WalkEntry[]> {
+  const entries: WalkEntry[] = []
+
+  function walk(dirPath: string, currentDepth: number): void {
+    if (currentDepth > maxDepth) return
+
+    try {
+      const items = readdirSync(dirPath)
+
+      for (const name of items) {
+        if (shouldHide(name)) continue
+
+        const fullPath = join(dirPath, name)
+        try {
+          const stats = statSync(fullPath)
+          const isDir = stats.isDirectory()
+
+          // Calculate relative path from root
+          const relativePath = fullPath.slice(rootPath.length + 1)
+
+          entries.push({
+            name,
+            path: fullPath,
+            isDirectory: isDir,
+            relativePath
+          })
+
+          // Recurse into directories
+          if (isDir) {
+            walk(fullPath, currentDepth + 1)
+          }
+        } catch {
+          // Skip files we can't stat (permission errors, etc.)
+        }
+      }
+    } catch {
+      // Skip directories we can't read
+    }
+  }
+
+  walk(rootPath, 0)
+
+  // Sort: directories first, then alphabetically by relative path
+  entries.sort((a, b) => {
+    if (a.isDirectory && !b.isDirectory) return -1
+    if (!a.isDirectory && b.isDirectory) return 1
+    return a.relativePath.localeCompare(b.relativePath)
+  })
+
+  return entries
 }

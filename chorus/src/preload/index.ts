@@ -53,7 +53,8 @@ const api = {
   fs: {
     listDirectory: (path: string) => ipcRenderer.invoke('fs:list-directory', path),
     readFile: (path: string) => ipcRenderer.invoke('fs:read-file', path),
-    writeFile: (path: string, content: string) => ipcRenderer.invoke('fs:write-file', path, content)
+    writeFile: (path: string, content: string) => ipcRenderer.invoke('fs:write-file', path, content),
+    walkDirectory: (path: string, maxDepth?: number) => ipcRenderer.invoke('fs:walk-directory', path, maxDepth)
   },
 
   // Dialog operations

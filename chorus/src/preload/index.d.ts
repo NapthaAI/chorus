@@ -217,6 +217,10 @@ interface DirectoryEntry {
   isDirectory: boolean
 }
 
+interface WalkEntry extends DirectoryEntry {
+  relativePath: string
+}
+
 interface GitChange {
   status: string
   file: string
@@ -302,6 +306,7 @@ interface FileSystemAPI {
   listDirectory: (path: string) => Promise<ApiResult<DirectoryEntry[]>>
   readFile: (path: string) => Promise<ApiResult<string>>
   writeFile: (path: string, content: string) => Promise<ApiResult>
+  walkDirectory: (path: string, maxDepth?: number) => Promise<ApiResult<WalkEntry[]>>
 }
 
 interface DialogAPI {

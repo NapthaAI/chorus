@@ -25,7 +25,7 @@ import {
   discoverAgents,
   getWorkspaceInfo
 } from './services/workspace-service'
-import { listDirectory, readFile, writeFile } from './services/fs-service'
+import { listDirectory, readFile, writeFile, walkDirectory } from './services/fs-service'
 import { isRepo, getStatus, getBranch, getLog, getLogForBranch, clone, cancelClone, listBranches, checkout } from './services/git-service'
 import {
   listConversations,
@@ -223,6 +223,15 @@ app.whenReady().then(() => {
     try {
       await writeFile(path, content)
       return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('fs:walk-directory', async (_event, path: string, maxDepth?: number) => {
+    try {
+      const entries = await walkDirectory(path, maxDepth)
+      return { success: true, data: entries }
     } catch (error) {
       return { success: false, error: String(error) }
     }

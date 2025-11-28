@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'fs'
+import { readdirSync, readFileSync, writeFileSync, statSync } from 'fs'
 import { join } from 'path'
 
 export interface DirectoryEntry {
@@ -103,4 +103,11 @@ export async function readFile(filePath: string): Promise<string> {
   }
 
   return content.toString('utf-8')
+}
+
+/**
+ * Write file contents
+ */
+export async function writeFile(filePath: string, content: string): Promise<void> {
+  writeFileSync(filePath, content, 'utf-8')
 }

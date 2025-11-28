@@ -46,7 +46,8 @@ const api = {
   // File system operations
   fs: {
     listDirectory: (path: string) => ipcRenderer.invoke('fs:list-directory', path),
-    readFile: (path: string) => ipcRenderer.invoke('fs:read-file', path)
+    readFile: (path: string) => ipcRenderer.invoke('fs:read-file', path),
+    writeFile: (path: string, content: string) => ipcRenderer.invoke('fs:write-file', path, content)
   },
 
   // Dialog operations

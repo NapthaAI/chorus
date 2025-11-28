@@ -95,8 +95,8 @@ export function ChangesPanel({ workspacePath }: ChangesPanelProps) {
             key={i}
             className="flex items-center gap-2 text-sm py-1 px-2 rounded hover:bg-hover"
           >
-            {getStatusIcon(change.status)}
-            <span className="font-mono text-muted truncate">{change.file}</span>
+            <span className="flex-shrink-0">{getStatusIcon(change.status)}</span>
+            <span className="font-mono text-muted truncate min-w-0">{change.file}</span>
           </div>
         ))}
         {status.changes.length > 10 && (

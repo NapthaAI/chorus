@@ -21,7 +21,7 @@ import {
   discoverAgents,
   getWorkspaceInfo
 } from './services/workspace-service'
-import { listDirectory, readFile } from './services/fs-service'
+import { listDirectory, readFile, writeFile } from './services/fs-service'
 import { isRepo, getStatus, getBranch, getLog, getLogForBranch, clone, cancelClone, listBranches, checkout } from './services/git-service'
 import {
   listConversations,
@@ -208,6 +208,15 @@ app.whenReady().then(() => {
     try {
       const content = await readFile(path)
       return { success: true, data: content }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('fs:write-file', async (_event, path: string, content: string) => {
+    try {
+      await writeFile(path, content)
+      return { success: true }
     } catch (error) {
       return { success: false, error: String(error) }
     }

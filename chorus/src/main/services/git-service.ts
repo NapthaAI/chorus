@@ -76,9 +76,16 @@ export async function getStatus(path: string): Promise<GitStatus> {
     const lines = output.split('\n').filter(Boolean)
 
     const changes: GitChange[] = lines.map((line) => {
-      const status = line.substring(0, 2).trim()
-      const file = line.substring(3)
-      return { status: status || '?', file }
+      // Porcelain format: XY PATH where XY is 2 chars, then space, then path
+      // Use regex to properly parse status and filename
+      const match = line.match(/^(.{2})\s(.+)$/)
+      if (match) {
+        const status = match[1].trim()
+        const file = match[2]
+        return { status: status || '?', file }
+      }
+      // Fallback: just use the whole line as filename
+      return { status: '?', file: line.trim() }
     })
 
     return {

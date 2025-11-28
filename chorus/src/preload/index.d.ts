@@ -263,6 +263,7 @@ interface AgentsAPI {
 interface FileSystemAPI {
   listDirectory: (path: string) => Promise<ApiResult<DirectoryEntry[]>>
   readFile: (path: string) => Promise<ApiResult<string>>
+  writeFile: (path: string, content: string) => Promise<ApiResult>
 }
 
 interface DialogAPI {

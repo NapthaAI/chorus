@@ -93,15 +93,28 @@ interface ConversationToolbarProps {
 
 export function ConversationToolbar({ conversationId }: ConversationToolbarProps) {
   const { conversations, updateConversationSettings } = useChatStore()
+  const [notification, setNotification] = useState<string | null>(null)
   const conversation = conversations.find(c => c.id === conversationId)
   const settings = conversation?.settings || DEFAULT_SETTINGS
 
+  // Show a temporary notification when settings change
+  const showSettingsNotification = (isModelChange: boolean) => {
+    const message = isModelChange
+      ? 'Settings will apply to next message. Model changes may increase token usage.'
+      : 'Settings will apply to your next message.'
+    setNotification(message)
+    // Auto-dismiss after 4 seconds
+    setTimeout(() => setNotification(null), 4000)
+  }
+
   const handleModelChange = (model: string) => {
     updateConversationSettings(conversationId, { model })
+    showSettingsNotification(true)
   }
 
   const handlePermissionChange = (permissionMode: PermissionMode) => {
     updateConversationSettings(conversationId, { permissionMode })
+    showSettingsNotification(false)
   }
 
   const handleToolToggle = (toolId: string) => {
@@ -110,6 +123,7 @@ export function ConversationToolbar({ conversationId }: ConversationToolbarProps
       ? currentTools.filter(t => t !== toolId)
       : [...currentTools, toolId]
     updateConversationSettings(conversationId, { allowedTools: newTools })
+    showSettingsNotification(false)
   }
 
   const selectedModel = MODELS.find(m => m.id === settings.model) || MODELS[0]
@@ -117,7 +131,13 @@ export function ConversationToolbar({ conversationId }: ConversationToolbarProps
   const enabledToolsCount = settings.allowedTools?.length || 0
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 border-b border-default bg-sidebar/50">
+    <div className="relative flex items-center gap-2 px-4 py-2 border-b border-default bg-sidebar/50">
+      {/* Settings Change Notification */}
+      {notification && (
+        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 px-4 py-2 bg-yellow-900/90 text-yellow-200 text-xs rounded-lg shadow-lg border border-yellow-700/50">
+          {notification}
+        </div>
+      )}
       {/* Model Selector */}
       <Dropdown label="Model" value={selectedModel.name}>
         {MODELS.map(model => (

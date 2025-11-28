@@ -159,6 +159,7 @@ export const ALWAYS_AVAILABLE_TOOLS = ['Read', 'Glob', 'Grep', 'Task', 'TodoWrit
 export interface Conversation {
   id: string
   sessionId: string | null
+  sessionCreatedAt: string | null  // ISO timestamp when session was created (for expiry tracking)
   agentId: string
   workspaceId: string
   title: string
@@ -287,6 +288,7 @@ export function createConversation(workspaceId: string, agentId: string): Conver
   const conversation: Conversation = {
     id: uuidv4(),
     sessionId: null,
+    sessionCreatedAt: null,
     agentId,
     workspaceId,
     title: 'New Conversation',
@@ -352,7 +354,7 @@ export function loadConversation(conversationId: string): { conversation: Conver
  */
 export function updateConversation(
   conversationId: string,
-  updates: Partial<Pick<Conversation, 'title' | 'sessionId' | 'messageCount' | 'settings'>>
+  updates: Partial<Pick<Conversation, 'title' | 'sessionId' | 'sessionCreatedAt' | 'messageCount' | 'settings'>>
 ): Conversation | null {
   const location = getConversationPath(conversationId)
   if (!location) {
@@ -371,6 +373,7 @@ export function updateConversation(
   const conversation = index.conversations[conversationIndex]
   if (updates.title !== undefined) conversation.title = updates.title
   if (updates.sessionId !== undefined) conversation.sessionId = updates.sessionId
+  if (updates.sessionCreatedAt !== undefined) conversation.sessionCreatedAt = updates.sessionCreatedAt
   if (updates.messageCount !== undefined) conversation.messageCount = updates.messageCount
   if (updates.settings !== undefined) conversation.settings = updates.settings
   conversation.updatedAt = new Date().toISOString()

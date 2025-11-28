@@ -395,20 +395,22 @@ app.whenReady().then(() => {
       conversationId: string,
       message: string,
       repoPath: string,
-      sessionId?: string,
+      _sessionId?: string,  // Deprecated: now loaded from backend conversation
       agentFilePath?: string
     ) => {
       try {
         if (!mainWindow) {
           return { success: false, error: 'Main window not available' }
         }
-        // Extract agentId and settings from the conversation context
+        // Extract agentId, sessionId, sessionCreatedAt, and settings from the conversation
         const { data } = await (async () => {
           const result = loadConversation(conversationId)
           return { data: result }
         })()
 
         const agentId = data?.conversation?.agentId || conversationId
+        const sessionId = data?.conversation?.sessionId || null
+        const sessionCreatedAt = data?.conversation?.sessionCreatedAt || null
         const settings = data?.conversation?.settings
 
         // Fire and forget - response comes via events
@@ -417,7 +419,8 @@ app.whenReady().then(() => {
           agentId,
           repoPath,
           message,
-          sessionId || null,
+          sessionId,
+          sessionCreatedAt,
           agentFilePath || null,
           mainWindow,
           settings

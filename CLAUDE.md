@@ -72,7 +72,13 @@ chorus/
 
 **Conversation Settings**: Each conversation can have custom settings for permission mode, allowed tools, and model selection. Settings are stored in the conversation's `settings` field and passed to Claude CLI via `--permission-mode`, `--allowedTools`, and `--model` flags. The `ConversationToolbar` component in the chat header provides dropdowns for changing these settings. See `specifications/2-claude-code-settings/feature.md` for details.
 
-**Workspace Default Settings**: Each workspace can have default settings stored in `.chorus/workspace-settings.json` that apply to new conversations. The settings hierarchy is: Global defaults → Workspace defaults → Per-conversation overrides. The `WorkspaceSettings` component in the Workspace Overview page allows users to configure defaults for permission mode, allowed tools, and model selection.
+**Workspace Default Settings**: Each workspace can have default settings stored in the central `.chorus/config.json` (under each workspace's `settings` field) that apply to new conversations. The settings hierarchy is: Global defaults → Workspace defaults → Per-conversation overrides. The `WorkspaceSettings` component in the Workspace Overview page allows users to configure defaults for permission mode, allowed tools, and model selection.
+
+**Session Resumption**: Conversations use Claude Code's `--resume <session-id>` to continue sessions. The sessionId is captured from the CLI's `system.init` message and stored in the conversation's `sessionId` field. The `sessionCreatedAt` timestamp tracks when the session was created for expiry detection (sessions expire after ~25 days). CRITICAL: The renderer must sync sessionId from backend after first message - this is done via the `agent:session-update` IPC event. See `docs/3-tools/claude-code/session-management.md` for detailed documentation.
+
+**Workspace Isolation**: Each agent runs in its workspace directory (the cloned repo path), NOT the parent Chorus directory. For example, if `mcplatform` repo is added to Chorus at `cc-slack/mcplatform`, Claude Code sessions run with `cwd: cc-slack/mcplatform`. The agent should NOT have access to `cc-slack/` parent. This is enforced in `agent-service.ts` via the `cwd: repoPath` option when spawning Claude CLI.
+
+**Settings on Resume**: Due to Claude Code bugs (GitHub #1523 for model, #12070 for permission mode), model/permission settings don't persist reliably across sessions. Chorus always passes `--model`, `--permission-mode`, and `--allowedTools` flags on every CLI invocation when resuming a session, ensuring settings are applied correctly. When users change settings mid-conversation, a notification warns them about implications.
 
 ## Development
 
@@ -99,6 +105,6 @@ bun run typecheck  # Type check all code
 - `chorus/src/preload/index.ts` - API surface exposed to renderer
 - `chorus/src/preload/index.d.ts` - Type definitions including Claude Code message types
 - `chorus/src/renderer/src/components/Chat/ConversationToolbar.tsx` - Settings toolbar with model/permission/tools dropdowns
-- `chorus/src/main/services/workspace-settings-service.ts` - Workspace default settings read/write
 - `chorus/src/renderer/src/components/MainPane/WorkspaceSettings.tsx` - Workspace settings UI in overview
 - `docs/3-tools/claude-code/message-format.md` - Claude Code stream-json format documentation
+- `docs/3-tools/claude-code/session-management.md` - Session resumption best practices and known issues

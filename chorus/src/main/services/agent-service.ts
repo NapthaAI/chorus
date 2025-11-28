@@ -48,6 +48,9 @@ export function isClaudeAvailable(): string | null {
 // Agent Communication
 // ============================================
 
+// Session age limit in days (Claude sessions expire after ~30 days)
+const SESSION_MAX_AGE_DAYS = 25
+
 /**
  * Send a message to a Claude agent using the Claude CLI
  */
@@ -57,6 +60,7 @@ export async function sendMessage(
   repoPath: string,
   message: string,
   sessionId: string | null,
+  sessionCreatedAt: string | null,
   agentFilePath: string | null,
   mainWindow: BrowserWindow,
   settings?: ConversationSettings
@@ -73,11 +77,26 @@ export async function sendMessage(
   // Use provided settings or defaults
   const effectiveSettings = settings || DEFAULT_CONVERSATION_SETTINGS
 
+  // Check if session has expired (Claude sessions last ~30 days)
+  let effectiveSessionId = sessionId
+  if (sessionId && sessionCreatedAt) {
+    const ageMs = Date.now() - new Date(sessionCreatedAt).getTime()
+    const ageDays = ageMs / (1000 * 60 * 60 * 24)
+    if (ageDays > SESSION_MAX_AGE_DAYS) {
+      console.log(`[Agent] Session ${sessionId} expired (${ageDays.toFixed(1)} days old), starting fresh`)
+      effectiveSessionId = null
+    }
+  }
+
   // Build claude command args
   const args = ['-p', '--verbose', '--output-format', 'stream-json']
 
-  // Add permission mode (if not default)
-  if (effectiveSettings.permissionMode && effectiveSettings.permissionMode !== 'default') {
+  // Always pass settings when resuming (Claude Code has persistence bugs)
+  // See GitHub issues #1523 (model), #12070 (permission mode)
+  const isResuming = !!effectiveSessionId
+
+  // Add permission mode - always pass when resuming due to persistence bugs
+  if (effectiveSettings.permissionMode && (effectiveSettings.permissionMode !== 'default' || isResuming)) {
     args.push('--permission-mode', effectiveSettings.permissionMode)
   }
 
@@ -86,19 +105,20 @@ export async function sendMessage(
     args.push('--allowedTools', effectiveSettings.allowedTools.join(','))
   }
 
-  // Add model (if specified)
-  if (effectiveSettings.model) {
+  // Add model - always pass when resuming due to persistence bugs
+  if (effectiveSettings.model && (effectiveSettings.model !== 'default' || isResuming)) {
     args.push('--model', effectiveSettings.model)
   }
 
-  // Add agent system prompt file if provided and exists
-  if (agentFilePath && existsSync(agentFilePath)) {
-    args.push('--system-prompt-file', agentFilePath)
-  }
-
-  // Add session resume if we have one
-  if (sessionId) {
-    args.push('--resume', sessionId)
+  // Add session resume if we have a valid (non-expired) session
+  if (effectiveSessionId) {
+    args.push('--resume', effectiveSessionId)
+    // Don't pass system prompt file when resuming - session already has context
+  } else {
+    // Only add agent system prompt file for NEW sessions
+    if (agentFilePath && existsSync(agentFilePath)) {
+      args.push('--system-prompt-file', agentFilePath)
+    }
   }
 
   // Add the prompt
@@ -169,6 +189,9 @@ export async function sendMessage(
     let currentAssistantMessage: ClaudeAssistantMessage | null = null
     let resultMessage: ClaudeResultMessage | null = null
 
+    // Track if we're resuming and what session we expected
+    const expectedSessionId = effectiveSessionId
+
     // Handle stdout - parse streaming JSON
     claudeProcess.stdout?.on('data', (data: Buffer) => {
       const chunk = data.toString()
@@ -193,11 +216,32 @@ export async function sendMessage(
 
           // Handle system init - capture session ID
           if (eventType === 'system' && event.subtype === 'init') {
-            const sessionId = event.session_id as string
-            capturedSessionId = sessionId
-            agentSessions.set(agentId, sessionId)
-            // Update conversation with session ID
-            updateConversation(conversationId, { sessionId })
+            const newSessionId = event.session_id as string
+            capturedSessionId = newSessionId
+            agentSessions.set(agentId, newSessionId)
+
+            // Log session status
+            if (expectedSessionId && newSessionId !== expectedSessionId) {
+              console.warn(`[Agent] Resume failed - expected ${expectedSessionId}, got ${newSessionId}`)
+            }
+
+            // Only update sessionCreatedAt for NEW sessions, not resumed ones
+            const isNewSession = !expectedSessionId || newSessionId !== expectedSessionId
+            const sessionCreatedAtValue = isNewSession ? new Date().toISOString() : null
+
+            // Update conversation with session ID (and creation time only if new)
+            const updateData: { sessionId: string; sessionCreatedAt?: string } = { sessionId: newSessionId }
+            if (sessionCreatedAtValue) {
+              updateData.sessionCreatedAt = sessionCreatedAtValue
+            }
+            updateConversation(conversationId, updateData)
+
+            // Notify renderer about session update (for state sync)
+            mainWindow.webContents.send('agent:session-update', {
+              conversationId,
+              sessionId: newSessionId,
+              sessionCreatedAt
+            })
 
             // Store system init message
             const systemMessage: ConversationMessage = {
@@ -205,7 +249,7 @@ export async function sendMessage(
               type: 'system',
               content: `Session started with model ${event.model as string}`,
               timestamp: new Date().toISOString(),
-              sessionId,
+              sessionId: newSessionId,
               claudeMessage: event as unknown as ClaudeCodeMessage
             }
             appendMessage(conversationId, systemMessage)
@@ -297,9 +341,17 @@ export async function sendMessage(
             const resultEvent = event as unknown as ClaudeResultMessage
             resultMessage = resultEvent
             if (resultEvent.session_id && !capturedSessionId) {
+              const sessionCreatedAt = new Date().toISOString()
               capturedSessionId = resultEvent.session_id
               agentSessions.set(agentId, resultEvent.session_id)
-              updateConversation(conversationId, { sessionId: resultEvent.session_id })
+              updateConversation(conversationId, { sessionId: resultEvent.session_id, sessionCreatedAt })
+
+              // Notify renderer about session update (for state sync)
+              mainWindow.webContents.send('agent:session-update', {
+                conversationId,
+                sessionId: resultEvent.session_id,
+                sessionCreatedAt
+              })
             }
           }
         } catch {
@@ -318,7 +370,9 @@ export async function sendMessage(
     // Handle stderr
     claudeProcess.stderr?.on('data', (data: Buffer) => {
       const errorText = data.toString()
-      console.error('[Agent] stderr:', errorText)
+      if (errorText.trim()) {
+        console.error('[Agent] stderr:', errorText.trim())
+      }
     })
 
     // Handle process completion

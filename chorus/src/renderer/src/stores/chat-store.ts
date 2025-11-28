@@ -114,9 +114,26 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const result = await window.api.conversation.load(conversationId)
       if (result.success && result.data) {
+        // Sync sessionId and sessionCreatedAt from backend to local state
+        // This ensures session resumption works even if the renderer was restarted
+        const loadedConv = result.data.conversation
+        const { conversations } = get()
+        const updatedConversations = loadedConv
+          ? conversations.map(conv =>
+              conv.id === conversationId
+                ? {
+                    ...conv,
+                    sessionId: loadedConv.sessionId,
+                    sessionCreatedAt: loadedConv.sessionCreatedAt
+                  }
+                : conv
+            )
+          : conversations
+
         set({
           activeConversationId: conversationId,
           messages: result.data.messages || [],
+          conversations: updatedConversations,
           isLoading: false,
           streamingContent: ''
         })
@@ -329,6 +346,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
     })
 
+    // Session update listener - sync sessionId when new session is created
+    const unsubscribeSessionUpdate = window.api.agent.onSessionUpdate((event) => {
+      const { conversations } = get()
+      const updatedConversations = conversations.map(conv =>
+        conv.id === event.conversationId
+          ? { ...conv, sessionId: event.sessionId, sessionCreatedAt: event.sessionCreatedAt }
+          : conv
+      )
+      set({ conversations: updatedConversations })
+    })
+
     // Load chatSidebarCollapsed from settings
     window.api.settings.get().then(result => {
       if (result.success && result.data) {
@@ -344,6 +372,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       unsubscribeDelta()
       unsubscribeMessage()
       unsubscribeStatus()
+      unsubscribeSessionUpdate()
     }
   },
 

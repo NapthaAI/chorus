@@ -17,6 +17,7 @@ export type {
   AgentStreamDelta,
   AgentMessageEvent,
   AgentStatusEvent,
+  AgentSessionUpdateEvent,
   // Claude Code message types
   TextBlock,
   ToolUseBlock,

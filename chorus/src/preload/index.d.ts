@@ -173,6 +173,7 @@ interface ConversationMessage {
 interface Conversation {
   id: string
   sessionId: string | null
+  sessionCreatedAt: string | null  // ISO timestamp when session was created (for expiry tracking)
   agentId: string
   workspaceId: string
   title: string
@@ -201,6 +202,12 @@ interface AgentStatusEvent {
   agentId: string
   status: 'ready' | 'busy' | 'error'
   error?: string
+}
+
+interface AgentSessionUpdateEvent {
+  conversationId: string
+  sessionId: string
+  sessionCreatedAt: string
 }
 
 interface DirectoryEntry {
@@ -329,6 +336,7 @@ interface AgentAPI {
   onStreamDelta: (callback: (event: AgentStreamDelta) => void) => () => void
   onMessage: (callback: (event: AgentMessageEvent) => void) => () => void
   onStatus: (callback: (event: AgentStatusEvent) => void) => () => void
+  onSessionUpdate: (callback: (event: AgentSessionUpdateEvent) => void) => () => void
 }
 
 interface SessionAPI {
@@ -380,6 +388,7 @@ export type {
   AgentStreamDelta,
   AgentMessageEvent,
   AgentStatusEvent,
+  AgentSessionUpdateEvent,
   // Claude Code message types
   TextBlock,
   ToolUseBlock,

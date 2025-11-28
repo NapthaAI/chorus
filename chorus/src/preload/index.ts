@@ -18,6 +18,12 @@ interface AgentStatusEvent {
   error?: string
 }
 
+interface AgentSessionUpdateEvent {
+  conversationId: string
+  sessionId: string
+  sessionCreatedAt: string
+}
+
 // Custom APIs for renderer - these are the ONLY APIs renderer can access
 const api = {
   // Settings operations
@@ -124,6 +130,11 @@ const api = {
       const handler = (_event: unknown, data: AgentStatusEvent) => callback(data)
       ipcRenderer.on('agent:status', handler)
       return () => ipcRenderer.removeListener('agent:status', handler)
+    },
+    onSessionUpdate: (callback: (event: AgentSessionUpdateEvent) => void) => {
+      const handler = (_event: unknown, data: AgentSessionUpdateEvent) => callback(data)
+      ipcRenderer.on('agent:session-update', handler)
+      return () => ipcRenderer.removeListener('agent:session-update', handler)
     }
   },
 

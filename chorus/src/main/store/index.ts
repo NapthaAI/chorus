@@ -9,6 +9,7 @@ export interface Agent {
   name: string
   filePath: string
   workspaceId: string
+  isGeneral?: boolean  // True for auto-created Chorus agent
 }
 
 export interface WorkspaceSettings {
@@ -84,6 +85,65 @@ export function initStore(): void {
 
   // Log store location for debugging
   console.log('Store location:', store.path)
+
+  // Migration: Add Chorus agent to existing workspaces that don't have one
+  migrateWorkspacesWithChorusAgent()
+}
+
+/**
+ * Migration: Ensure all workspaces have a Chorus agent.
+ * Runs on every app start but only modifies workspaces lacking a Chorus agent.
+ */
+function migrateWorkspacesWithChorusAgent(): void {
+  const workspaces = store.get('workspaces', [])
+  let migrated = false
+
+  const updatedWorkspaces = workspaces.map((workspace) => {
+    // Check if workspace already has a Chorus agent (isGeneral === true)
+    const hasChorusAgent = workspace.agents.some((a) => a.isGeneral)
+
+    if (!hasChorusAgent) {
+      console.log(`Migration: Adding Chorus agent to workspace "${workspace.name}"`)
+      migrated = true
+      // Create Chorus agent and prepend to agents array
+      const chorusAgent: Agent = {
+        id: uuidv4(),
+        name: 'Chorus',
+        filePath: '',
+        workspaceId: workspace.id,
+        isGeneral: true
+      }
+      return {
+        ...workspace,
+        agents: [chorusAgent, ...workspace.agents]
+      }
+    }
+
+    return workspace
+  })
+
+  if (migrated) {
+    store.set('workspaces', updatedWorkspaces)
+    console.log('Migration: Chorus agent migration complete')
+  }
+}
+
+// ============================================
+// CHORUS AGENT HELPER
+// ============================================
+
+/**
+ * Creates a Chorus agent object for a workspace.
+ * The Chorus agent is the default general-purpose agent without a system prompt file.
+ */
+export function createChorusAgent(workspaceId: string): Agent {
+  return {
+    id: uuidv4(),
+    name: 'Chorus',
+    filePath: '',
+    workspaceId,
+    isGeneral: true
+  }
 }
 
 // ============================================
@@ -120,6 +180,12 @@ export function addWorkspace(
   const name = basename(path)
   const id = uuidv4()
 
+  // Create the Chorus agent (default general-purpose agent)
+  const chorusAgent = createChorusAgent(id)
+
+  // Discovered agents get workspaceId assigned
+  const discoveredAgents = info.agents.map((a) => ({ ...a, workspaceId: id }))
+
   const workspace: Workspace = {
     id,
     name,
@@ -128,7 +194,8 @@ export function addWorkspace(
     gitBranch: info.gitBranch,
     isDirty: info.isDirty,
     hasSystemPrompt: info.hasSystemPrompt,
-    agents: info.agents.map((a) => ({ ...a, workspaceId: id }))
+    // Chorus agent first, then discovered agents
+    agents: [chorusAgent, ...discoveredAgents]
   }
 
   workspaces.push(workspace)
@@ -157,7 +224,24 @@ export function updateWorkspace(
 
   const workspace = workspaces[index]
 
-  // Build the updated workspace, converting agents to include workspaceId
+  // Handle agents update - preserve existing Chorus agent
+  let updatedAgents = workspace.agents
+  if (updates.agents) {
+    // Find existing Chorus agent (isGeneral === true)
+    const existingChorus = workspace.agents.find((a) => a.isGeneral)
+    // Map discovered agents to include workspaceId
+    const discoveredAgents = updates.agents.map((a) => ({ ...a, workspaceId: id }))
+
+    if (existingChorus) {
+      // Preserve existing Chorus agent ID
+      updatedAgents = [existingChorus, ...discoveredAgents]
+    } else {
+      // No Chorus agent exists (shouldn't happen, but defensive) - create one
+      updatedAgents = [createChorusAgent(id), ...discoveredAgents]
+    }
+  }
+
+  // Build the updated workspace
   const updated: Workspace = {
     ...workspace,
     gitBranch: updates.gitBranch !== undefined ? updates.gitBranch : workspace.gitBranch,
@@ -165,7 +249,7 @@ export function updateWorkspace(
     hasSystemPrompt:
       updates.hasSystemPrompt !== undefined ? updates.hasSystemPrompt : workspace.hasSystemPrompt,
     isExpanded: updates.isExpanded !== undefined ? updates.isExpanded : workspace.isExpanded,
-    agents: updates.agents ? updates.agents.map((a) => ({ ...a, workspaceId: id })) : workspace.agents
+    agents: updatedAgents
   }
 
   workspaces[index] = updated

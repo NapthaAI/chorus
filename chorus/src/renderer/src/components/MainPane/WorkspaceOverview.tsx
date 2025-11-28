@@ -41,6 +41,14 @@ const ChevronRightIcon = () => (
   </svg>
 )
 
+// Sparkle icon for Chorus (general) agent
+const SparkleIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0zm0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13zm8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5zM3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8zm10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.414a.5.5 0 1 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0zm-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0zm9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707zM4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708z"/>
+    <circle cx="8" cy="8" r="3" />
+  </svg>
+)
+
 // Generate a consistent color based on agent name
 function getAvatarColor(name: string): string {
   const colors = [
@@ -135,35 +143,44 @@ export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
           </div>
         ) : (
           <div className="grid gap-2">
-            {workspace.agents.map((agent) => {
-              const avatarColor = getAvatarColor(agent.name)
-              const initials = getInitials(agent.name)
-              return (
-                <div
-                  key={agent.id}
-                  onClick={() => selectAgent(agent.id)}
-                  className="flex items-center gap-3 p-3 rounded-lg bg-input border border-default hover:bg-hover hover:border-accent/30 transition-all cursor-pointer group"
-                >
-                  {/* Avatar */}
+            {/* Sort: Chorus (isGeneral) first, then alphabetically */}
+            {[...workspace.agents]
+              .sort((a, b) => {
+                if (a.isGeneral) return -1
+                if (b.isGeneral) return 1
+                return a.name.localeCompare(b.name)
+              })
+              .map((agent) => {
+                const avatarColor = agent.isGeneral ? '#8b5cf6' : getAvatarColor(agent.name)  // Purple for Chorus
+                const initials = getInitials(agent.name)
+                return (
                   <div
-                    className="relative flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-semibold"
-                    style={{ backgroundColor: avatarColor }}
+                    key={agent.id}
+                    onClick={() => selectAgent(agent.id)}
+                    className="flex items-center gap-3 p-3 rounded-lg bg-input border border-default hover:bg-hover hover:border-accent/30 transition-all cursor-pointer group"
                   >
-                    {initials}
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-input" />
+                    {/* Avatar */}
+                    <div
+                      className="relative flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-semibold"
+                      style={{ backgroundColor: avatarColor }}
+                    >
+                      {agent.isGeneral ? <SparkleIcon /> : initials}
+                      <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-input" />
+                    </div>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium group-hover:text-accent transition-colors">{agent.name}</p>
+                      <p className="text-xs text-muted font-mono truncate">
+                        {agent.isGeneral ? 'Default agent' : agent.filePath.split('/').pop()}
+                      </p>
+                    </div>
+                    {/* Arrow */}
+                    <div className="text-muted group-hover:text-accent transition-colors">
+                      <ChevronRightIcon />
+                    </div>
                   </div>
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium group-hover:text-accent transition-colors">{agent.name}</p>
-                    <p className="text-xs text-muted font-mono truncate">{agent.filePath.split('/').pop()}</p>
-                  </div>
-                  {/* Arrow */}
-                  <div className="text-muted group-hover:text-accent transition-colors">
-                    <ChevronRightIcon />
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
           </div>
         )}
       </div>

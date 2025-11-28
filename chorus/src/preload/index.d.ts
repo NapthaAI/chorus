@@ -19,6 +19,7 @@ interface Agent {
   name: string
   filePath: string
   workspaceId: string
+  isGeneral?: boolean  // True for auto-created Chorus agent
 }
 
 interface Workspace {

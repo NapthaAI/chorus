@@ -153,9 +153,16 @@ export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
               No agents in this workspace
             </div>
           ) : (
-            workspace.agents.map((agent) => (
-              <AgentItem key={agent.id} agent={agent} />
-            ))
+            /* Sort: Chorus (isGeneral) first, then alphabetically */
+            [...workspace.agents]
+              .sort((a, b) => {
+                if (a.isGeneral) return -1
+                if (b.isGeneral) return 1
+                return a.name.localeCompare(b.name)
+              })
+              .map((agent) => (
+                <AgentItem key={agent.id} agent={agent} />
+              ))
           )}
         </div>
       )}

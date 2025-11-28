@@ -39,8 +39,8 @@ const TrashIcon = () => (
 
 export function ConversationItem({ conversation }: ConversationItemProps) {
   const { activeConversationId, selectConversation, deleteConversation } = useChatStore()
-  const [showContextMenu, setShowContextMenu] = useState(false)
-  const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 })
+  const [isHovered, setIsHovered] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const isActive = activeConversationId === conversation.id
 
@@ -48,62 +48,81 @@ export function ConversationItem({ conversation }: ConversationItemProps) {
     selectConversation(conversation.id)
   }
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault()
-    setContextMenuPos({ x: e.clientX, y: e.clientY })
-    setShowContextMenu(true)
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowDeleteConfirm(true)
   }
 
-  const handleDelete = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setShowContextMenu(false)
+  const handleConfirmDelete = async () => {
+    setShowDeleteConfirm(false)
     await deleteConversation(conversation.id)
   }
 
-  // Close context menu when clicking outside
-  const handleCloseMenu = () => {
-    setShowContextMenu(false)
+  const handleCancelDelete = () => {
+    setShowDeleteConfirm(false)
   }
 
   return (
     <>
-      <button
-        onClick={handleClick}
-        onContextMenu={handleContextMenu}
-        className={`w-full text-left px-3 py-2 transition-colors ${
-          isActive
-            ? 'bg-accent/20 border-l-2 border-accent'
-            : 'hover:bg-hover border-l-2 border-transparent'
-        }`}
+      <div
+        className="relative"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
       >
-        <div className="text-sm text-white truncate">
-          {truncateTitle(conversation.title)}
-        </div>
-        <div className="text-xs text-muted mt-0.5">
-          {getRelativeTime(conversation.updatedAt)}
-        </div>
-      </button>
+        <button
+          onClick={handleClick}
+          className={`w-full text-left px-3 py-2 pr-8 transition-colors ${
+            isActive
+              ? 'bg-accent/20 border-l-2 border-accent'
+              : 'hover:bg-hover border-l-2 border-transparent'
+          }`}
+        >
+          <div className="text-sm text-white truncate">
+            {truncateTitle(conversation.title)}
+          </div>
+          <div className="text-xs text-muted mt-0.5">
+            {getRelativeTime(conversation.updatedAt)}
+          </div>
+        </button>
 
-      {/* Context Menu */}
-      {showContextMenu && (
+        {/* Delete icon on hover */}
+        {isHovered && (
+          <button
+            onClick={handleDeleteClick}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted hover:text-red-400 transition-colors rounded"
+            title="Delete conversation"
+          >
+            <TrashIcon />
+          </button>
+        )}
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 z-50"
-            onClick={handleCloseMenu}
+            className="fixed inset-0 z-50 bg-black/50"
+            onClick={handleCancelDelete}
           />
-          {/* Menu */}
-          <div
-            className="fixed z-50 bg-input border border-default rounded-lg shadow-lg py-1 min-w-[140px]"
-            style={{ left: contextMenuPos.x, top: contextMenuPos.y }}
-          >
-            <button
-              onClick={handleDelete}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-hover transition-colors"
-            >
-              <TrashIcon />
-              <span>Delete</span>
-            </button>
+          {/* Dialog */}
+          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-sidebar border border-default rounded-lg shadow-xl p-4 min-w-[280px]">
+            <h3 className="text-white font-medium mb-2">Delete conversation?</h3>
+            <p className="text-muted text-sm mb-4">This cannot be undone.</p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={handleCancelDelete}
+                className="px-3 py-1.5 text-sm text-muted hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </>
       )}

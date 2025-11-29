@@ -16,6 +16,7 @@ All work follows specs in `specifications/`. Each sprint has a `feature.md` (req
 | **Tool calls UI** | ✅ Complete | Consecutive tool calls grouped into collapsible sections with input/output display |
 | **Multi-conversation support** | ✅ Complete | Unread badges, per-agent status tracking (Busy/Error), parallel agent conversations |
 | **5-migrate-to-cc-agent-sdk** | ✅ Complete | Migrated from CLI spawning to Claude Agent SDK for direct API integration |
+| **6-from-chat-to-work** | ✅ Complete | Details Panel with files changed, todo list, tool calls breakdown, and context metrics |
 
 **Before implementing**: Read the relevant spec files for requirements and implementation guidance.
 
@@ -23,6 +24,8 @@ All work follows specs in `specifications/`. Each sprint has a `feature.md` (req
 - `specifications/0-chorus-setup/implementation-plan.md` - Phased build approach, patterns to follow
 - `specifications/1-claude-code-integration/implementation-plan.md` - Claude Code integration plan
 - `specifications/2-claude-code-settings/feature.md` - Permission modes, tool selection, model configuration
+- `specifications/6-from-chat-to-work/feature.md` - Details Panel UI spec
+- `specifications/6-from-chat-to-work/implementation-plan.md` - TodoWrite interception, file tracking, IPC events
 
 ## Architecture
 
@@ -81,6 +84,8 @@ chorus/
 
 **Permission Handling**: The SDK's `canUseTool` callback intercepts tool calls that require user approval. When triggered, a `PermissionDialog` component displays the tool name and input, allowing users to approve or deny. The dialog supports custom denial reasons that are fed back to the agent. See `chorus/src/renderer/src/components/dialogs/PermissionDialog.tsx`.
 
+**Details Panel**: The chat sidebar has a "Details" tab showing real-time conversation info: files changed (clickable to open in FileViewer), agent's todo list with status icons (pending/in_progress/completed), tool calls breakdown by tool type with success/failure counts, and context metrics (input/output tokens, cost). TodoWrite tool calls are intercepted and emitted via `agent:todo-update` IPC event. File changes from Write/Edit tools are tracked via `agent:file-changed` IPC event. State is stored in chat-store (`conversationTodos`, `conversationFiles` Maps) and reconstructed from JSONL on conversation load. See `ConversationDetails.tsx` and `specifications/6-from-chat-to-work/`.
+
 ## Development
 
 ```bash
@@ -109,6 +114,7 @@ bun run typecheck  # Type check all code
 - `chorus/src/renderer/src/components/Chat/ConversationToolbar.tsx` - Settings toolbar with model/permission/tools dropdowns
 - `chorus/src/renderer/src/components/MainPane/WorkspaceSettings.tsx` - Workspace settings UI in overview
 - `chorus/src/renderer/src/components/dialogs/PermissionDialog.tsx` - SDK permission request dialog
+- `chorus/src/renderer/src/components/Chat/ConversationDetails.tsx` - Details panel with files, todos, tool calls, metrics
 - `docs/3-tools/claude-code/message-format.md` - Claude Code stream-json format documentation
 - `docs/3-tools/claude-code/session-management.md` - Session resumption best practices and known issues
 - `specifications/5-migrate-to-cc-agent-sdk/feature.md` - SDK migration requirements and known limitations

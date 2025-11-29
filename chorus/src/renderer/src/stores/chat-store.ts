@@ -5,7 +5,9 @@ import type {
   ChatSidebarTab,
   AgentStatus,
   ConversationSettings,
-  PermissionRequestEvent
+  PermissionRequestEvent,
+  TodoItem,
+  FileChange
 } from '../types'
 
 interface ChatStore {
@@ -29,6 +31,9 @@ interface ChatStore {
   unreadByAgent: Map<string, number>      // agentId → total count
   // Permission request (SDK mode)
   pendingPermissionRequest: PermissionRequestEvent | null
+  // Details panel state - per conversation
+  conversationTodos: Map<string, TodoItem[]>
+  conversationFiles: Map<string, FileChange[]>
 
   // Actions
   loadConversations: (workspaceId: string, agentId: string) => Promise<void>
@@ -58,6 +63,11 @@ interface ChatStore {
   getActiveConversationSettings: () => ConversationSettings | undefined
   // Permission handling (SDK mode)
   respondToPermission: (approved: boolean, reason?: string) => Promise<void>
+  // Details panel actions
+  updateTodos: (conversationId: string, todos: TodoItem[]) => void
+  addFileChange: (conversationId: string, change: FileChange) => void
+  getTodos: (conversationId: string) => TodoItem[]
+  getFileChanges: (conversationId: string) => FileChange[]
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -81,6 +91,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   unreadByAgent: new Map<string, number>(),
   // Permission request (SDK mode)
   pendingPermissionRequest: null,
+  // Details panel state
+  conversationTodos: new Map<string, TodoItem[]>(),
+  conversationFiles: new Map<string, FileChange[]>(),
 
   // Load conversations for a workspace/agent
   loadConversations: async (workspaceId: string, agentId: string) => {
@@ -137,10 +150,49 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             )
           : conversations
 
+        const loadedMessages = result.data.messages || []
+
+        // Reconstruct todos from TodoWrite messages
+        const todoMessages = loadedMessages.filter(m => m.toolName === 'TodoWrite')
+        const lastTodoMsg = todoMessages[todoMessages.length - 1]
+        const todosFromMsg = lastTodoMsg?.toolInput?.todos as TodoItem[] | undefined
+        const reconstructedTodos: TodoItem[] = todosFromMsg || []
+
+        // Reconstruct file changes from system messages with Write/Edit toolName
+        const fileMessages = loadedMessages.filter(m =>
+          m.type === 'system' && (m.toolName === 'Write' || m.toolName === 'Edit')
+        )
+        // Deduplicate by path (keep latest)
+        const fileMap = new Map<string, FileChange>()
+        fileMessages.forEach(m => {
+          const filePath = m.toolInput?.file_path as string | undefined
+          if (filePath) {
+            fileMap.set(filePath, {
+              path: filePath,
+              toolName: m.toolName as 'Write' | 'Edit',
+              timestamp: m.timestamp
+            })
+          }
+        })
+        const reconstructedFiles = Array.from(fileMap.values())
+
+        // Update state with reconstructed data
+        const { conversationTodos, conversationFiles } = get()
+        const newTodos = new Map(conversationTodos)
+        const newFiles = new Map(conversationFiles)
+        if (reconstructedTodos.length > 0) {
+          newTodos.set(conversationId, reconstructedTodos)
+        }
+        if (reconstructedFiles.length > 0) {
+          newFiles.set(conversationId, reconstructedFiles)
+        }
+
         set({
           activeConversationId: conversationId,
-          messages: result.data.messages || [],
+          messages: loadedMessages,
           conversations: updatedConversations,
+          conversationTodos: newTodos,
+          conversationFiles: newFiles,
           isLoading: false,
           streamingContent: ''
         })
@@ -369,6 +421,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       set({ pendingPermissionRequest: event })
     })
 
+    // Todo update listener (SDK mode)
+    const unsubscribeTodo = window.api.agent.onTodoUpdate((event) => {
+      get().updateTodos(event.conversationId, event.todos)
+    })
+
+    // File change listener (SDK mode)
+    const unsubscribeFileChange = window.api.agent.onFileChanged((event) => {
+      get().addFileChange(event.conversationId, {
+        path: event.filePath,
+        toolName: event.toolName as 'Write' | 'Edit',
+        timestamp: new Date().toISOString()
+      })
+    })
+
     // Load chatSidebarCollapsed from settings
     window.api.settings.get().then(result => {
       if (result.success && result.data) {
@@ -386,6 +452,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       unsubscribeStatus()
       unsubscribeSessionUpdate()
       unsubscribePermission()
+      unsubscribeTodo()
+      unsubscribeFileChange()
     }
   },
 
@@ -526,5 +594,42 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       // Clear the pending request
       set({ pendingPermissionRequest: null })
     }
+  },
+
+  // Update todos for a conversation (full replacement)
+  updateTodos: (conversationId: string, todos: TodoItem[]) => {
+    const { conversationTodos } = get()
+    const newTodos = new Map(conversationTodos)
+    newTodos.set(conversationId, todos)
+    set({ conversationTodos: newTodos })
+  },
+
+  // Add a file change for a conversation
+  addFileChange: (conversationId: string, change: FileChange) => {
+    const { conversationFiles } = get()
+    const newFiles = new Map(conversationFiles)
+    const existing = newFiles.get(conversationId) || []
+
+    // Deduplicate by path - update if same path, otherwise append
+    const index = existing.findIndex(f => f.path === change.path)
+    if (index >= 0) {
+      // Update existing entry with latest timestamp
+      const updated = [...existing]
+      updated[index] = change
+      newFiles.set(conversationId, updated)
+    } else {
+      newFiles.set(conversationId, [...existing, change])
+    }
+    set({ conversationFiles: newFiles })
+  },
+
+  // Get todos for a conversation
+  getTodos: (conversationId: string) => {
+    return get().conversationTodos.get(conversationId) || []
+  },
+
+  // Get file changes for a conversation
+  getFileChanges: (conversationId: string) => {
+    return get().conversationFiles.get(conversationId) || []
   }
 }))

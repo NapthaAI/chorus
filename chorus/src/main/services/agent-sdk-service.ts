@@ -238,6 +238,18 @@ export async function sendMessageSDK(
                 const filePath = toolInput?.file_path
                 const toolName = input.tool_name
                 if (filePath && (toolName === 'Write' || toolName === 'Edit')) {
+                  // Persist file change as a message for session resumption
+                  const fileChangeMessage: ConversationMessage = {
+                    uuid: uuidv4(),
+                    type: 'system',
+                    content: `File ${toolName.toLowerCase()}d: ${filePath}`,
+                    timestamp: new Date().toISOString(),
+                    toolName: toolName,
+                    toolInput: { file_path: filePath }
+                  }
+                  appendMessage(conversationId, fileChangeMessage)
+
+                  // Send file change event to renderer
                   mainWindow.webContents.send('agent:file-changed', {
                     conversationId,
                     filePath,
@@ -321,7 +333,42 @@ export async function sendMessageSDK(
               streamingContent += block.text
             } else if (block.type === 'tool_use') {
               const toolBlock = block as ToolUseBlock
-              // Create tool use message
+
+              // Special handling for TodoWrite tool - emit todo update event
+              if (toolBlock.name === 'TodoWrite') {
+                const todoInput = toolBlock.input as { todos?: Array<{ content: string; status: string; activeForm: string }> }
+                if (todoInput.todos) {
+                  // Persist TodoWrite as a message for session resumption
+                  const todoMessage: ConversationMessage = {
+                    uuid: uuidv4(),
+                    type: 'tool_use',
+                    content: 'TodoWrite update',
+                    timestamp: new Date().toISOString(),
+                    toolName: 'TodoWrite',
+                    toolInput: { todos: todoInput.todos },
+                    toolUseId: toolBlock.id,
+                    claudeMessage: assistantMsg
+                  }
+                  appendMessage(conversationId, todoMessage)
+
+                  // Send todo update event to renderer
+                  mainWindow.webContents.send('agent:todo-update', {
+                    conversationId,
+                    todos: todoInput.todos,
+                    timestamp: new Date().toISOString()
+                  })
+
+                  // Also send as regular message for UI consistency
+                  mainWindow.webContents.send('agent:message', {
+                    conversationId,
+                    agentId,
+                    message: todoMessage
+                  })
+                }
+                continue // Skip normal tool_use handling for TodoWrite
+              }
+
+              // Create tool use message for other tools
               const toolMessage: ConversationMessage = {
                 uuid: uuidv4(),
                 type: 'tool_use',

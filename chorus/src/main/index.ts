@@ -16,7 +16,8 @@ import {
   getWorkspaceSettings,
   setWorkspaceSettings,
   hasWorkspaceSettings,
-  WorkspaceSettings
+  WorkspaceSettings,
+  OpenTabsState
 } from './store'
 
 // Import services
@@ -117,6 +118,11 @@ app.whenReady().then(() => {
 
   ipcMain.handle('settings:set-root-dir', async (_event, path: string) => {
     setSettings({ rootWorkspaceDir: path })
+    return { success: true }
+  })
+
+  ipcMain.handle('settings:set-open-tabs', async (_event, openTabs: OpenTabsState) => {
+    setSettings({ openTabs })
     return { success: true }
   })
 

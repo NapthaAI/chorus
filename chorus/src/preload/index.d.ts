@@ -33,11 +33,27 @@ interface Workspace {
   agents: Agent[]
 }
 
+// Tab type for persistence
+interface Tab {
+  id: string
+  type: 'chat' | 'file'
+  workspaceId?: string
+  agentId?: string
+  filePath?: string
+  title: string
+}
+
+interface OpenTabsState {
+  tabs: Tab[]
+  activeTabId: string | null
+}
+
 interface ChorusSettings {
   rootWorkspaceDir: string
   theme: 'dark' | 'light'
   chatSidebarCollapsed: boolean
   chatSidebarWidth: number
+  openTabs?: OpenTabsState
 }
 
 // ============================================
@@ -233,6 +249,27 @@ interface FileChangedEvent {
   toolName: string
 }
 
+// Todo item from TodoWrite tool
+interface TodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  activeForm: string
+}
+
+// Todo update event from TodoWrite tool interception
+interface TodoUpdateEvent {
+  conversationId: string
+  todos: TodoItem[]
+  timestamp: string
+}
+
+// File change record for Details panel
+interface FileChange {
+  path: string
+  toolName: 'Write' | 'Edit'
+  timestamp: string
+}
+
 interface DirectoryEntry {
   name: string
   path: string
@@ -311,6 +348,7 @@ interface SettingsAPI {
   set: (settings: Partial<ChorusSettings>) => Promise<ApiResult>
   getRootDir: () => Promise<ApiResult<string>>
   setRootDir: (path: string) => Promise<ApiResult>
+  setOpenTabs: (openTabs: OpenTabsState) => Promise<ApiResult>
 }
 
 interface WorkspaceAPI {
@@ -371,6 +409,7 @@ interface AgentAPI {
   // SDK-only events
   onPermissionRequest: (callback: (event: PermissionRequestEvent) => void) => () => void
   onFileChanged: (callback: (event: FileChangedEvent) => void) => () => void
+  onTodoUpdate: (callback: (event: TodoUpdateEvent) => void) => () => void
 }
 
 interface SessionAPI {
@@ -407,6 +446,8 @@ declare global {
 export type {
   Agent,
   Workspace,
+  Tab,
+  OpenTabsState,
   ChorusSettings,
   DirectoryEntry,
   GitChange,
@@ -427,6 +468,10 @@ export type {
   PermissionRequestEvent,
   PermissionResponse,
   FileChangedEvent,
+  // Todo tracking types
+  TodoItem,
+  TodoUpdateEvent,
+  FileChange,
   // Claude Code message types
   TextBlock,
   ToolUseBlock,

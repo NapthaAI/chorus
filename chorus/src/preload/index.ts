@@ -39,6 +39,20 @@ interface FileChangedEvent {
   toolName: string
 }
 
+// Todo item from TodoWrite tool
+interface TodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  activeForm: string
+}
+
+// Todo update event from TodoWrite tool interception
+interface TodoUpdateEvent {
+  conversationId: string
+  todos: TodoItem[]
+  timestamp: string
+}
+
 // Custom APIs for renderer - these are the ONLY APIs renderer can access
 const api = {
   // Settings operations
@@ -48,6 +62,8 @@ const api = {
       ipcRenderer.invoke('settings:set', settings),
     getRootDir: () => ipcRenderer.invoke('settings:get-root-dir'),
     setRootDir: (path: string) => ipcRenderer.invoke('settings:set-root-dir', path),
+    setOpenTabs: (openTabs: { tabs: unknown[]; activeTabId: string | null }) =>
+      ipcRenderer.invoke('settings:set-open-tabs', openTabs),
     getChorusDir: () => ipcRenderer.invoke('settings:get-chorus-dir')
   },
 
@@ -170,6 +186,12 @@ const api = {
       const handler = (_event: unknown, data: FileChangedEvent) => callback(data)
       ipcRenderer.on('agent:file-changed', handler)
       return () => ipcRenderer.removeListener('agent:file-changed', handler)
+    },
+    // Todo update event (SDK only - from TodoWrite tool)
+    onTodoUpdate: (callback: (event: TodoUpdateEvent) => void) => {
+      const handler = (_event: unknown, data: TodoUpdateEvent) => callback(data)
+      ipcRenderer.on('agent:todo-update', handler)
+      return () => ipcRenderer.removeListener('agent:todo-update', handler)
     }
   },
 

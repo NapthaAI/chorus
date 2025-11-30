@@ -160,6 +160,11 @@ const api = {
       ipcRenderer.on('agent:stream-delta', handler)
       return () => ipcRenderer.removeListener('agent:stream-delta', handler)
     },
+    onStreamClear: (callback: (event: { conversationId: string }) => void) => {
+      const handler = (_event: unknown, data: { conversationId: string }) => callback(data)
+      ipcRenderer.on('agent:stream-clear', handler)
+      return () => ipcRenderer.removeListener('agent:stream-clear', handler)
+    },
     onMessage: (callback: (event: AgentMessageEvent) => void) => {
       const handler = (_event: unknown, data: AgentMessageEvent) => callback(data)
       ipcRenderer.on('agent:message', handler)

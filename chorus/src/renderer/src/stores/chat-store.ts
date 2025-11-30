@@ -364,6 +364,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
     })
 
+    // Stream clear listener - clears streaming content when text is flushed to a message
+    const unsubscribeStreamClear = window.api.agent.onStreamClear((event) => {
+      const { activeConversationId } = get()
+      if (event.conversationId === activeConversationId) {
+        set({ streamingContent: '' })
+      }
+    })
+
     // Message listener
     const unsubscribeMessage = window.api.agent.onMessage((event) => {
       const { activeConversationId, incrementUnread } = get()
@@ -448,6 +456,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     // Return cleanup function
     return () => {
       unsubscribeDelta()
+      unsubscribeStreamClear()
       unsubscribeMessage()
       unsubscribeStatus()
       unsubscribeSessionUpdate()

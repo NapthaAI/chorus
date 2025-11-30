@@ -244,6 +244,83 @@ agents: {
 
 **Key for CC-Slack:** Streaming essential for dynamic inter-agent message passing.
 
+#### Real-Time Text Streaming with `includePartialMessages`
+
+By default, the SDK only emits complete `SDKAssistantMessage` messages after the model finishes generating. This causes text to appear delayed - users see tool calls executing but no explanatory text until the full response completes.
+
+To enable real-time character-by-character text streaming, use `includePartialMessages: true`:
+
+```typescript
+const stream = query({
+  prompt: "Analyze this codebase",
+  options: {
+    includePartialMessages: true,  // Enable real-time streaming
+    // ...other options
+  }
+});
+
+for await (const msg of stream) {
+  if (msg.type === 'stream_event') {
+    // SDKPartialAssistantMessage - contains raw stream events
+    const event = msg.event;
+
+    if (event.type === 'content_block_delta') {
+      const delta = event.delta;
+      if (delta.type === 'text_delta' && delta.text) {
+        // Real-time text chunk - display immediately
+        process.stdout.write(delta.text);
+      } else if (delta.type === 'thinking_delta' && delta.thinking) {
+        // Real-time thinking chunk
+        process.stdout.write(delta.thinking);
+      }
+    }
+  } else if (msg.type === 'assistant') {
+    // Complete message - use for tool_use blocks
+    // Text content already streamed via partial messages
+  }
+}
+```
+
+**Message Types with `includePartialMessages: true`:**
+
+| Type | Description |
+|------|-------------|
+| `stream_event` | `SDKPartialAssistantMessage` - Raw stream events from Anthropic API |
+| `assistant` | Complete `SDKAssistantMessage` - Use for tool_use processing |
+| `user` | Tool results and user input |
+| `result` | Final session statistics |
+| `system` | Session init, status updates |
+
+**Stream Event Types (in `msg.event`):**
+
+| Event Type | Description |
+|------------|-------------|
+| `content_block_delta` | Incremental content - `text_delta`, `thinking_delta`, `input_json_delta` |
+| `content_block_start` | New content block beginning |
+| `content_block_stop` | Content block finished |
+| `message_start` | Message metadata |
+| `message_delta` | Cumulative token counts |
+| `message_stop` | Message complete |
+
+**Implementation in Chorus:**
+
+Chorus uses `includePartialMessages` to stream text as it's generated, preventing the "10 minutes of silence" issue where users only see tool call groups without context.
+
+Key implementation details in `agent-sdk-service.ts`:
+
+1. **Enable partial messages**: `options.includePartialMessages = true`
+
+2. **Handle `stream_event` messages**: Extract `text_delta` from `content_block_delta` events and send via `agent:stream-delta` IPC
+
+3. **Flush text before tool calls**: When a `tool_use` block arrives, flush any accumulated streaming text as an assistant message FIRST, then emit the tool_use. This ensures text appears interleaved with tool calls:
+   - Text: "Let me analyze..." → displayed
+   - Tool calls (3x) → displayed as collapsible group
+   - Text: "Now I understand..." → displayed
+   - Tool calls (5x) → displayed as another group
+   - Text: "Here's the report..." → displayed
+
+4. **Clear streaming display**: Send `agent:stream-clear` event to reset the streaming bubble when text is flushed to a permanent message.
+
 ---
 
 ### 13. System Prompts

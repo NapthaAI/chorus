@@ -403,6 +403,7 @@ interface AgentAPI {
   respondPermission: (requestId: string, response: PermissionResponse) => Promise<ApiResult>
   // Event listeners
   onStreamDelta: (callback: (event: AgentStreamDelta) => void) => () => void
+  onStreamClear: (callback: (event: { conversationId: string }) => void) => () => void
   onMessage: (callback: (event: AgentMessageEvent) => void) => () => void
   onStatus: (callback: (event: AgentStatusEvent) => void) => () => void
   onSessionUpdate: (callback: (event: AgentSessionUpdateEvent) => void) => () => void

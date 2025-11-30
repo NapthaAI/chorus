@@ -1,4 +1,4 @@
-import { query, type Query } from '@anthropic-ai/claude-agent-sdk'
+import { query, type Query, type SDKPartialAssistantMessage } from '@anthropic-ai/claude-agent-sdk'
 import { BrowserWindow } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import { existsSync, readFileSync } from 'fs'
@@ -226,6 +226,9 @@ export async function sendMessageSDK(
       })
     }
 
+    // Enable partial messages for real-time text streaming
+    options.includePartialMessages = true
+
     // Add hooks for file change notifications
     options.hooks = {
       PostToolUse: [
@@ -317,21 +320,64 @@ export async function sendMessageSDK(
         appendMessage(conversationId, systemMessage)
       }
 
-      // Handle assistant messages
+      // Handle partial assistant messages (real-time streaming)
+      if (msg.type === 'stream_event') {
+        const partialMsg = msg as SDKPartialAssistantMessage
+        const event = partialMsg.event
+
+        // Handle text deltas for real-time streaming
+        if (event.type === 'content_block_delta') {
+          const delta = event.delta as { type: string; text?: string; thinking?: string }
+          if (delta.type === 'text_delta' && delta.text) {
+            mainWindow.webContents.send('agent:stream-delta', {
+              conversationId,
+              delta: delta.text
+            })
+            streamingContent += delta.text
+          } else if (delta.type === 'thinking_delta' && delta.thinking) {
+            mainWindow.webContents.send('agent:stream-delta', {
+              conversationId,
+              delta: delta.thinking
+            })
+          }
+        }
+        continue // Skip further processing for partial messages
+      }
+
+      // Handle assistant messages (complete messages - for tool_use blocks)
+      // Note: Text content is already streamed via stream_event above
       if (msg.type === 'assistant' && 'message' in msg) {
         const assistantMsg = msg as unknown as ClaudeAssistantMessage
         currentAssistantMessage = assistantMsg
 
         if (assistantMsg.message?.content) {
           for (const block of assistantMsg.message.content) {
+            // Skip text blocks - already streamed via partial messages
+            // But first, flush any accumulated text as a message before tool_use
             if (block.type === 'text') {
-              // Send stream delta for real-time display
-              mainWindow.webContents.send('agent:stream-delta', {
-                conversationId,
-                delta: block.text
-              })
-              streamingContent += block.text
+              continue
             } else if (block.type === 'tool_use') {
+              // IMPORTANT: Flush accumulated streaming text BEFORE emitting tool_use
+              // This ensures text appears before the tool calls that follow it
+              if (streamingContent.trim()) {
+                const textMessage: ConversationMessage = {
+                  uuid: uuidv4(),
+                  type: 'assistant',
+                  content: streamingContent,
+                  timestamp: new Date().toISOString(),
+                  sessionId: capturedSessionId || undefined
+                }
+                appendMessage(conversationId, textMessage)
+                mainWindow.webContents.send('agent:message', {
+                  conversationId,
+                  agentId,
+                  message: textMessage
+                })
+                // Clear streaming content and notify renderer to clear streaming display
+                streamingContent = ''
+                mainWindow.webContents.send('agent:stream-clear', { conversationId })
+              }
+
               const toolBlock = block as ToolUseBlock
 
               // Special handling for TodoWrite tool - emit todo update event
@@ -385,12 +431,9 @@ export async function sendMessageSDK(
                 agentId,
                 message: toolMessage
               })
-            } else if (block.type === 'thinking' && 'thinking' in block) {
-              // Handle thinking blocks
-              mainWindow.webContents.send('agent:stream-delta', {
-                conversationId,
-                delta: `\n<thinking>${block.thinking}</thinking>\n`
-              })
+            } else if (block.type === 'thinking') {
+              // Skip thinking blocks - already streamed via partial messages
+              continue
             }
           }
         }

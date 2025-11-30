@@ -72,7 +72,7 @@ function getInitials(name: string): string {
 }
 
 export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
-  const { setSidebarTab } = useUIStore()
+  const { setRightPanelTab, setRightPanelCollapsed } = useUIStore()
   const { selectAgent, refreshWorkspace } = useWorkspaceStore()
 
   const handleBranchChange = async () => {
@@ -189,7 +189,10 @@ export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
       {/* Quick actions */}
       <div className="flex gap-3">
         <button
-          onClick={() => setSidebarTab('files')}
+          onClick={() => {
+            setRightPanelTab('files')
+            setRightPanelCollapsed(false)
+          }}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-input border border-default text-secondary hover:bg-hover hover:text-primary hover:border-accent/30 transition-all"
         >
           <FolderIcon />

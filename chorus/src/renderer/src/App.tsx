@@ -1,6 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useCallback } from 'react'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { MainPane } from './components/MainPane/MainPane'
+import { RightPanel } from './components/RightPanel'
+import { ResizeHandle } from './components/ResizeHandle'
 import { SettingsDialog } from './components/dialogs/SettingsDialog'
 import { AddWorkspaceDialog } from './components/dialogs/AddWorkspaceDialog'
 import { PermissionDialog } from './components/dialogs/PermissionDialog'
@@ -8,10 +10,29 @@ import { useWorkspaceStore } from './stores/workspace-store'
 import { useUIStore } from './stores/ui-store'
 import { useChatStore } from './stores/chat-store'
 
+const MIN_PANEL_WIDTH = 200
+const MAX_PANEL_WIDTH = 600
+
 function App() {
   const { loadWorkspaces, loadSettings } = useWorkspaceStore()
-  const { isSettingsOpen, isAddWorkspaceOpen } = useUIStore()
+  const {
+    isSettingsOpen,
+    isAddWorkspaceOpen,
+    leftPanelWidth,
+    setLeftPanelWidth,
+    rightPanelWidth,
+    setRightPanelWidth,
+    rightPanelCollapsed
+  } = useUIStore()
   const { pendingPermissionRequest, respondToPermission } = useChatStore()
+
+  const handleLeftResize = useCallback((delta: number) => {
+    setLeftPanelWidth(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, leftPanelWidth + delta)))
+  }, [leftPanelWidth, setLeftPanelWidth])
+
+  const handleRightResize = useCallback((delta: number) => {
+    setRightPanelWidth(Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, rightPanelWidth + delta)))
+  }, [rightPanelWidth, setRightPanelWidth])
 
   useEffect(() => {
     // Load settings and workspaces on mount
@@ -32,7 +53,10 @@ function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-main text-primary">
       <Sidebar />
+      <ResizeHandle position="left" onResize={handleLeftResize} />
       <MainPane />
+      {!rightPanelCollapsed && <ResizeHandle position="right" onResize={handleRightResize} />}
+      <RightPanel />
 
       {/* Dialogs */}
       {isSettingsOpen && <SettingsDialog />}

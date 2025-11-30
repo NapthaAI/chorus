@@ -7,6 +7,7 @@ interface WorkspaceStore {
   selectedWorkspaceId: string | null
   selectedAgentId: string | null
   selectedFilePath: string | null
+  selectedConversationId: string | null  // Active chat conversation
   settings: ChorusSettings | null
   isLoading: boolean
   error: string | null
@@ -33,6 +34,7 @@ interface WorkspaceStore {
   selectWorkspace: (id: string | null) => void
   selectAgent: (agentId: string | null, workspaceId?: string) => void
   selectFile: (filePath: string | null) => void
+  selectConversation: (conversationId: string, agentId: string, workspaceId: string, title: string) => void
   toggleWorkspaceExpanded: (id: string) => void
   setRootWorkspaceDir: (path: string) => Promise<void>
   clearError: () => void
@@ -56,6 +58,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   selectedWorkspaceId: null,
   selectedAgentId: null,
   selectedFilePath: null,
+  selectedConversationId: null,
   settings: null,
   isLoading: false,
   error: null,
@@ -213,39 +216,15 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   selectAgent: (agentId: string | null, workspaceId?: string) => {
     if (!agentId) {
-      set({ selectedAgentId: null, selectedFilePath: null })
+      set({ selectedAgentId: null })
       return
     }
 
-    const { workspaces, tabs, openTab } = get()
     const wsId = workspaceId || get().selectedWorkspaceId
-    const workspace = workspaces.find(w => w.id === wsId)
-    const agent = workspace?.agents.find(a => a.id === agentId)
-
-    // Check if tab already exists
-    const existingTab = tabs.find(t => t.type === 'chat' && t.agentId === agentId && t.workspaceId === wsId)
-    if (existingTab) {
-      set({
-        selectedWorkspaceId: wsId,
-        selectedAgentId: agentId,
-        selectedFilePath: null,
-        activeTabId: existingTab.id
-      })
-    } else {
-      // Create new tab
-      const tabId = openTab({
-        type: 'chat',
-        workspaceId: wsId || undefined,
-        agentId,
-        title: agent?.name || 'Chat'
-      })
-      set({
-        selectedWorkspaceId: wsId,
-        selectedAgentId: agentId,
-        selectedFilePath: null,
-        activeTabId: tabId
-      })
-    }
+    set({
+      selectedWorkspaceId: wsId,
+      selectedAgentId: agentId
+    })
   },
 
   selectFile: (filePath: string | null) => {
@@ -262,7 +241,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     if (existingTab) {
       set({
         selectedFilePath: filePath,
-        selectedAgentId: null,
+        selectedConversationId: null,
         activeTabId: existingTab.id
       })
     } else {
@@ -275,7 +254,40 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       })
       set({
         selectedFilePath: filePath,
-        selectedAgentId: null,
+        selectedConversationId: null,
+        activeTabId: tabId
+      })
+    }
+  },
+
+  // Select a conversation and open it as a chat tab
+  selectConversation: (conversationId: string, agentId: string, workspaceId: string, title: string) => {
+    const { tabs, openTab } = get()
+
+    // Check if chat tab already exists for this conversation
+    const existingTab = tabs.find(t => t.type === 'chat' && t.conversationId === conversationId)
+    if (existingTab) {
+      set({
+        selectedConversationId: conversationId,
+        selectedAgentId: agentId,
+        selectedWorkspaceId: workspaceId,
+        selectedFilePath: null,
+        activeTabId: existingTab.id
+      })
+    } else {
+      // Create new chat tab
+      const tabId = openTab({
+        type: 'chat',
+        conversationId,
+        agentId,
+        workspaceId,
+        title
+      })
+      set({
+        selectedConversationId: conversationId,
+        selectedAgentId: agentId,
+        selectedWorkspaceId: workspaceId,
+        selectedFilePath: null,
         activeTabId: tabId
       })
     }
@@ -351,7 +363,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     set({
       tabs: newTabs,
       activeTabId: newActiveTabId,
-      selectedAgentId: newActiveTab?.type === 'chat' ? newActiveTab.agentId || null : null,
       selectedFilePath: newActiveTab?.type === 'file' ? newActiveTab.filePath || null : null,
       selectedWorkspaceId: newActiveTab?.workspaceId || get().selectedWorkspaceId
     })
@@ -365,12 +376,22 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const tab = tabs.find(t => t.id === tabId)
     if (!tab) return
 
-    set({
-      activeTabId: tabId,
-      selectedAgentId: tab.type === 'chat' ? tab.agentId || null : null,
-      selectedFilePath: tab.type === 'file' ? tab.filePath || null : null,
-      selectedWorkspaceId: tab.workspaceId || get().selectedWorkspaceId
-    })
+    if (tab.type === 'chat') {
+      set({
+        activeTabId: tabId,
+        selectedConversationId: tab.conversationId || null,
+        selectedAgentId: tab.agentId || null,
+        selectedWorkspaceId: tab.workspaceId || get().selectedWorkspaceId,
+        selectedFilePath: null
+      })
+    } else {
+      set({
+        activeTabId: tabId,
+        selectedFilePath: tab.filePath || null,
+        selectedWorkspaceId: tab.workspaceId || get().selectedWorkspaceId,
+        selectedConversationId: null
+      })
+    }
   },
 
   loadTabs: async () => {
@@ -380,17 +401,29 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       const result = await window.api.settings.get()
       if (result.success && result.data?.openTabs) {
         const { tabs: savedTabs, activeTabId: savedActiveTabId } = result.data.openTabs
-        if (savedTabs && savedTabs.length > 0) {
-          set({ tabs: savedTabs, activeTabId: savedActiveTabId || savedTabs[0]?.id || null })
+        // Load both file and chat tabs
+        const validTabs = savedTabs || []
+        if (validTabs.length > 0) {
+          const newActiveTabId = validTabs.find((t: Tab) => t.id === savedActiveTabId)?.id || validTabs[0]?.id || null
+          set({ tabs: validTabs, activeTabId: newActiveTabId })
 
           // Set selection state based on active tab
-          const activeTab = savedTabs.find((t: Tab) => t.id === savedActiveTabId)
+          const activeTab = validTabs.find((t: Tab) => t.id === newActiveTabId)
           if (activeTab) {
-            set({
-              selectedAgentId: activeTab.type === 'chat' ? activeTab.agentId || null : null,
-              selectedFilePath: activeTab.type === 'file' ? activeTab.filePath || null : null,
-              selectedWorkspaceId: activeTab.workspaceId || null
-            })
+            if (activeTab.type === 'chat') {
+              set({
+                selectedConversationId: activeTab.conversationId || null,
+                selectedAgentId: activeTab.agentId || null,
+                selectedWorkspaceId: activeTab.workspaceId || null,
+                selectedFilePath: null
+              })
+            } else {
+              set({
+                selectedFilePath: activeTab.filePath || null,
+                selectedWorkspaceId: activeTab.workspaceId || null,
+                selectedConversationId: null
+              })
+            }
           }
         }
       }

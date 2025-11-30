@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
 import { FileViewer } from './FileViewer'
 import { WorkspaceOverview } from './WorkspaceOverview'
+import { ChatTab } from './ChatTab'
 import { TabBar } from './TabBar'
-import { ChatView } from '../Chat'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 
 // SVG Icons
@@ -43,7 +43,6 @@ export function MainPane() {
   const {
     workspaces,
     selectedWorkspaceId,
-    selectedAgentId,
     selectedFilePath,
     tabs,
     activeTabId,
@@ -56,39 +55,31 @@ export function MainPane() {
   }, [loadTabs])
 
   const selectedWorkspace = workspaces.find((ws) => ws.id === selectedWorkspaceId)
-  const selectedAgent = selectedWorkspace?.agents.find((a) => a.id === selectedAgentId)
 
   // Get active tab for rendering
   const activeTab = tabs.find((t) => t.id === activeTabId)
 
   // Determine what to show based on active tab or selection state
   const renderContent = () => {
-    // If there's an active tab, render based on tab type
-    if (activeTab) {
-      if (activeTab.type === 'file' && activeTab.filePath) {
-        return <FileViewer filePath={activeTab.filePath} />
-      }
-
-      if (activeTab.type === 'chat') {
-        // Find workspace and agent for the chat tab
-        const tabWorkspace = workspaces.find((ws) => ws.id === activeTab.workspaceId)
-        const tabAgent = tabWorkspace?.agents.find((a) => a.id === activeTab.agentId)
-
-        if (tabAgent && tabWorkspace) {
-          return <ChatView agent={tabAgent} workspace={tabWorkspace} />
-        }
-      }
+    // If there's an active chat tab, show chat
+    if (activeTab?.type === 'chat' && activeTab.conversationId && activeTab.agentId && activeTab.workspaceId) {
+      return (
+        <ChatTab
+          conversationId={activeTab.conversationId}
+          agentId={activeTab.agentId}
+          workspaceId={activeTab.workspaceId}
+        />
+      )
     }
 
-    // Fallback to old behavior for backward compatibility
-    // File is selected - show file viewer
+    // If there's an active file tab, show file viewer
+    if (activeTab?.type === 'file' && activeTab.filePath) {
+      return <FileViewer filePath={activeTab.filePath} />
+    }
+
+    // File is selected without tab - show file viewer
     if (selectedFilePath) {
       return <FileViewer filePath={selectedFilePath} />
-    }
-
-    // Agent is selected - show chat view
-    if (selectedAgent && selectedWorkspace) {
-      return <ChatView agent={selectedAgent} workspace={selectedWorkspace} />
     }
 
     // Workspace is selected - show overview
@@ -105,7 +96,7 @@ export function MainPane() {
       {/* Draggable title bar area for macOS */}
       <div className="h-10 titlebar-drag-region flex-shrink-0 border-b border-default" />
 
-      {/* Tab Bar */}
+      {/* Tab Bar - only shows file tabs */}
       <TabBar />
 
       {/* Content */}

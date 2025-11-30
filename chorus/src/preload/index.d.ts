@@ -39,6 +39,7 @@ interface Tab {
   type: 'chat' | 'file'
   workspaceId?: string
   agentId?: string
+  conversationId?: string  // For chat tabs
   filePath?: string
   title: string
 }

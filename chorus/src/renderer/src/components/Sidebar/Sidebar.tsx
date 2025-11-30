@@ -1,25 +1,23 @@
-import { SidebarTabs } from './SidebarTabs'
 import { WorkspacesPanel } from './WorkspacesPanel'
-import { FilesPanel } from './FilesPanel'
+import { AgentConversationsPanel } from './AgentConversationsPanel'
 import { useUIStore } from '../../stores/ui-store'
+import { useWorkspaceStore } from '../../stores/workspace-store'
 
 export function Sidebar() {
-  const { sidebarTab, sidebarWidth } = useUIStore()
+  const { leftPanelWidth } = useUIStore()
+  const { selectedAgentId } = useWorkspaceStore()
 
   return (
     <div
       className="flex flex-col h-full bg-sidebar border-r border-default"
-      style={{ width: sidebarWidth }}
+      style={{ width: leftPanelWidth }}
     >
       {/* Draggable title bar area for macOS */}
       <div className="h-10 titlebar-drag-region flex-shrink-0" />
 
-      {/* Tab icons */}
-      <SidebarTabs />
-
-      {/* Tab content */}
+      {/* Content - show conversations panel if agent selected, otherwise show workspaces */}
       <div className="flex-1 overflow-hidden">
-        {sidebarTab === 'workspaces' ? <WorkspacesPanel /> : <FilesPanel />}
+        {selectedAgentId ? <AgentConversationsPanel /> : <WorkspacesPanel />}
       </div>
     </div>
   )

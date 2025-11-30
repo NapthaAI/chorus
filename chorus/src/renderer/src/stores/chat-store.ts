@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import type {
   Conversation,
   ConversationMessage,
-  ChatSidebarTab,
   AgentStatus,
   ConversationSettings,
   PermissionRequestEvent,
@@ -22,7 +21,6 @@ interface ChatStore {
   agentStatus: AgentStatus
   agentStatuses: Map<string, AgentStatus>  // Per-agent status tracking
   chatSidebarCollapsed: boolean
-  chatSidebarTab: ChatSidebarTab
   error: string | null
   claudePath: string | null
   isClaudeChecked: boolean
@@ -46,7 +44,6 @@ interface ChatStore {
   setAgentStatus: (status: AgentStatus) => void
   stopAgent: (agentId: string) => Promise<void>
   setChatSidebarCollapsed: (collapsed: boolean) => void
-  setChatSidebarTab: (tab: ChatSidebarTab) => void
   initEventListeners: () => () => void
   clearChat: () => void
   setError: (error: string | null) => void
@@ -82,7 +79,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   agentStatus: 'ready',
   agentStatuses: new Map<string, AgentStatus>(),
   chatSidebarCollapsed: false,
-  chatSidebarTab: 'conversations',
   error: null,
   claudePath: null,
   isClaudeChecked: false,
@@ -347,11 +343,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ chatSidebarCollapsed: collapsed })
     // Persist to settings
     window.api.settings.set({ chatSidebarCollapsed: collapsed }).catch(() => {})
-  },
-
-  // Set chat sidebar tab
-  setChatSidebarTab: (tab: ChatSidebarTab) => {
-    set({ chatSidebarTab: tab })
   },
 
   // Initialize event listeners for agent communication

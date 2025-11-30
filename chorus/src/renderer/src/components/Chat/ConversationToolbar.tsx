@@ -72,19 +72,19 @@ function ContextBadge({ messages }: ContextBadgeProps) {
     [messages]
   )
 
-  const level = getContextLevel(metrics.estimatedPercentage)
+  const level = getContextLevel(metrics.contextPercentage)
   const progressColor = getProgressBarColor(level)
   const showWarning = level === 'high' || level === 'critical'
 
   // Don't show if no tokens yet
-  if (metrics.totalTokens === 0) {
+  if (metrics.totalContextTokens === 0) {
     return null
   }
 
   const tooltip =
-    `~${metrics.estimatedUsage.toLocaleString()} / ${metrics.contextLimit.toLocaleString()} tokens (estimated)\n` +
-    `Total: ${metrics.totalTokens.toLocaleString()} tokens\n` +
-    `Cache read: ${metrics.cacheReadTokens.toLocaleString()} (not counted against context)`
+    `${metrics.totalContextTokens.toLocaleString()} / ${metrics.contextLimit.toLocaleString()} tokens\n` +
+    `Input: ${metrics.totalInputTokens.toLocaleString()} (${metrics.cacheReadTokens.toLocaleString()} cached)\n` +
+    `Output: ${metrics.outputTokens.toLocaleString()}`
 
   return (
     <div
@@ -96,10 +96,10 @@ function ContextBadge({ messages }: ContextBadgeProps) {
       <div className="w-20 h-2 bg-hover rounded-full overflow-hidden">
         <div
           className={`h-full ${progressColor} transition-all duration-300`}
-          style={{ width: `${Math.min(metrics.estimatedPercentage, 100)}%` }}
+          style={{ width: `${Math.min(metrics.contextPercentage, 100)}%` }}
         />
       </div>
-      <span className="text-xs text-muted w-8">~{Math.round(metrics.estimatedPercentage)}%</span>
+      <span className="text-xs text-muted w-8">{Math.round(metrics.contextPercentage)}%</span>
     </div>
   )
 }

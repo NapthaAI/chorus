@@ -316,10 +316,10 @@ function ContextMetricsSection({ messages }: { messages: ConversationMessage[] }
     [messages]
   )
 
-  const level = getContextLevel(metrics.estimatedPercentage)
+  const level = getContextLevel(metrics.contextPercentage)
   const progressColor = getProgressBarColor(level)
 
-  if (metrics.totalTokens === 0) {
+  if (metrics.totalContextTokens === 0) {
     return (
       <Section title="Context" icon={<ChartIcon />}>
         <p className="px-3 text-xs text-muted">No metrics available yet</p>
@@ -333,31 +333,27 @@ function ContextMetricsSection({ messages }: { messages: ConversationMessage[] }
         {/* Progress Bar */}
         <div>
           <div className="flex justify-between text-xs text-muted mb-1">
-            <span>Context Usage</span>
-            <span>{Math.round(metrics.estimatedPercentage)}%</span>
+            <span>Context Window</span>
+            <span>{Math.round(metrics.contextPercentage)}%</span>
           </div>
           <div className="h-2 bg-hover rounded-full overflow-hidden">
             <div
               className={`h-full ${progressColor} transition-all duration-300`}
-              style={{ width: `${Math.min(metrics.estimatedPercentage, 100)}%` }}
+              style={{ width: `${Math.min(metrics.contextPercentage, 100)}%` }}
             />
           </div>
           <div className="flex justify-between text-xs text-muted mt-1">
-            <span>{metrics.estimatedUsage.toLocaleString()}</span>
+            <span>{metrics.totalContextTokens.toLocaleString()}</span>
             <span>{metrics.contextLimit.toLocaleString()}</span>
           </div>
         </div>
 
         {/* Token Breakdown */}
         <div className="space-y-1.5">
-          <div className="text-xs text-muted uppercase tracking-wide">Tokens</div>
+          <div className="text-xs text-muted uppercase tracking-wide">Token Breakdown</div>
           <div className="flex justify-between text-sm">
-            <span className="text-muted">Input</span>
+            <span className="text-muted">Input (uncached)</span>
             <span className="text-primary font-mono">{metrics.inputTokens.toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-muted">Output</span>
-            <span className="text-primary font-mono">{metrics.outputTokens.toLocaleString()}</span>
           </div>
           {metrics.cacheReadTokens > 0 && (
             <div className="flex justify-between text-sm">
@@ -368,9 +364,17 @@ function ContextMetricsSection({ messages }: { messages: ConversationMessage[] }
           {metrics.cacheCreationTokens > 0 && (
             <div className="flex justify-between text-sm">
               <span className="text-muted">Cache write</span>
-              <span className="text-primary font-mono">{metrics.cacheCreationTokens.toLocaleString()}</span>
+              <span className="text-yellow-400 font-mono">{metrics.cacheCreationTokens.toLocaleString()}</span>
             </div>
           )}
+          <div className="flex justify-between text-sm border-t border-default pt-1">
+            <span className="text-muted">Total input</span>
+            <span className="text-primary font-mono">{metrics.totalInputTokens.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted">Output</span>
+            <span className="text-primary font-mono">{metrics.outputTokens.toLocaleString()}</span>
+          </div>
         </div>
 
         {/* Session Info */}

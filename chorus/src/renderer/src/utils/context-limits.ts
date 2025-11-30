@@ -47,15 +47,19 @@ export function getProgressBarColor(level: ContextLevel): string {
 // ============================================
 
 export interface ContextMetrics {
-  inputTokens: number
-  outputTokens: number
-  totalTokens: number
-  cacheReadTokens: number
-  cacheCreationTokens: number
-  totalCost: number
+  // Token breakdown from result message
+  inputTokens: number           // Tokens after last cache breakpoint
+  outputTokens: number          // Claude's response tokens
+  cacheReadTokens: number       // Tokens retrieved from cache
+  cacheCreationTokens: number   // Tokens written to cache
+  // Calculated totals
+  totalInputTokens: number      // All input: input + cacheRead + cacheCreation
+  totalContextTokens: number    // Full context: totalInput + output
+  // Context window
   contextLimit: number
-  estimatedUsage: number
-  estimatedPercentage: number
+  contextPercentage: number     // totalContextTokens / contextLimit * 100
+  // Session info
+  totalCost: number
   numTurns: number
   durationMs: number
 }
@@ -63,13 +67,13 @@ export interface ContextMetrics {
 const EMPTY_METRICS: ContextMetrics = {
   inputTokens: 0,
   outputTokens: 0,
-  totalTokens: 0,
   cacheReadTokens: 0,
   cacheCreationTokens: 0,
-  totalCost: 0,
+  totalInputTokens: 0,
+  totalContextTokens: 0,
   contextLimit: DEFAULT_CONTEXT_WINDOW,
-  estimatedUsage: 0,
-  estimatedPercentage: 0,
+  contextPercentage: 0,
+  totalCost: 0,
   numTurns: 0,
   durationMs: 0
 }
@@ -133,18 +137,25 @@ function extractFromClaudeMessage(claudeMessage: unknown): ContextMetrics | null
   const outputTokens = usage.output_tokens || 0
   const cacheReadTokens = usage.cache_read_input_tokens || 0
   const cacheCreationTokens = usage.cache_creation_input_tokens || 0
-  const estimatedUsage = inputTokens + cacheReadTokens + cacheCreationTokens
+
+  // Total input = all input token types (all count toward context)
+  const totalInputTokens = inputTokens + cacheReadTokens + cacheCreationTokens
+  // Total context = input + output (full context window usage)
+  const totalContextTokens = totalInputTokens + outputTokens
+  const contextPercentage = contextLimit > 0
+    ? Math.min((totalContextTokens / contextLimit) * 100, 100)
+    : 0
 
   return {
     inputTokens,
     outputTokens,
-    totalTokens: inputTokens + outputTokens,
     cacheReadTokens,
     cacheCreationTokens,
-    totalCost: msg.total_cost_usd || 0,
+    totalInputTokens,
+    totalContextTokens,
     contextLimit,
-    estimatedUsage,
-    estimatedPercentage: contextLimit > 0 ? Math.min((estimatedUsage / contextLimit) * 100, 100) : 0,
+    contextPercentage,
+    totalCost: msg.total_cost_usd || 0,
     numTurns: msg.num_turns || 0,
     durationMs: msg.duration_ms || 0
   }
@@ -162,18 +173,25 @@ function extractFromMessageFields(m: ConversationMessage): ContextMetrics | null
   const cacheReadTokens = m.cacheReadTokens || 0
   const cacheCreationTokens = m.cacheCreationTokens || 0
   const contextLimit = m.contextWindow || DEFAULT_CONTEXT_WINDOW
-  const estimatedUsage = inputTokens + cacheReadTokens + cacheCreationTokens
+
+  // Total input = all input token types (all count toward context)
+  const totalInputTokens = inputTokens + cacheReadTokens + cacheCreationTokens
+  // Total context = input + output (full context window usage)
+  const totalContextTokens = totalInputTokens + outputTokens
+  const contextPercentage = contextLimit > 0
+    ? Math.min((totalContextTokens / contextLimit) * 100, 100)
+    : 0
 
   return {
     inputTokens,
     outputTokens,
-    totalTokens: inputTokens + outputTokens,
     cacheReadTokens,
     cacheCreationTokens,
-    totalCost: m.costUsd || 0,
+    totalInputTokens,
+    totalContextTokens,
     contextLimit,
-    estimatedUsage,
-    estimatedPercentage: contextLimit > 0 ? Math.min((estimatedUsage / contextLimit) * 100, 100) : 0,
+    contextPercentage,
+    totalCost: m.costUsd || 0,
     numTurns: m.numTurns || 0,
     durationMs: m.durationMs || 0
   }

@@ -77,14 +77,14 @@ function ContextBadge({ messages }: ContextBadgeProps) {
   const showWarning = level === 'high' || level === 'critical'
 
   // Don't show if no tokens yet
-  if (metrics.totalContextTokens === 0) {
+  if (metrics.contextUsed === 0) {
     return null
   }
 
   const tooltip =
-    `${metrics.totalContextTokens.toLocaleString()} / ${metrics.contextLimit.toLocaleString()} tokens\n` +
-    `Input: ${metrics.totalInputTokens.toLocaleString()} (${metrics.cacheReadTokens.toLocaleString()} cached)\n` +
-    `Output: ${metrics.outputTokens.toLocaleString()}`
+    `Context: ${metrics.contextUsed.toLocaleString()} / ${metrics.contextLimit.toLocaleString()} tokens\n` +
+    `Input: ${metrics.inputTokens.toLocaleString()} uncached + ${metrics.cacheReadTokens.toLocaleString()} cached\n` +
+    `Output: ${metrics.outputTokens.toLocaleString()} (not counted in context)`
 
   return (
     <div

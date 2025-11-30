@@ -319,7 +319,7 @@ function ContextMetricsSection({ messages }: { messages: ConversationMessage[] }
   const level = getContextLevel(metrics.contextPercentage)
   const progressColor = getProgressBarColor(level)
 
-  if (metrics.totalContextTokens === 0) {
+  if (metrics.contextUsed === 0) {
     return (
       <Section title="Context" icon={<ChartIcon />}>
         <p className="px-3 text-xs text-muted">No metrics available yet</p>
@@ -343,14 +343,14 @@ function ContextMetricsSection({ messages }: { messages: ConversationMessage[] }
             />
           </div>
           <div className="flex justify-between text-xs text-muted mt-1">
-            <span>{metrics.totalContextTokens.toLocaleString()}</span>
+            <span>{metrics.contextUsed.toLocaleString()}</span>
             <span>{metrics.contextLimit.toLocaleString()}</span>
           </div>
         </div>
 
         {/* Token Breakdown */}
         <div className="space-y-1.5">
-          <div className="text-xs text-muted uppercase tracking-wide">Token Breakdown</div>
+          <div className="text-xs text-muted uppercase tracking-wide">Context Tokens</div>
           <div className="flex justify-between text-sm">
             <span className="text-muted">Input (uncached)</span>
             <span className="text-primary font-mono">{metrics.inputTokens.toLocaleString()}</span>
@@ -368,12 +368,8 @@ function ContextMetricsSection({ messages }: { messages: ConversationMessage[] }
             </div>
           )}
           <div className="flex justify-between text-sm border-t border-default pt-1">
-            <span className="text-muted">Total input</span>
-            <span className="text-primary font-mono">{metrics.totalInputTokens.toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between text-sm">
             <span className="text-muted">Output</span>
-            <span className="text-primary font-mono">{metrics.outputTokens.toLocaleString()}</span>
+            <span className="text-secondary font-mono">{metrics.outputTokens.toLocaleString()}</span>
           </div>
         </div>
 

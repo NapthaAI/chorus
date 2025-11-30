@@ -47,18 +47,18 @@ export function getProgressBarColor(level: ContextLevel): string {
 // ============================================
 
 export interface ContextMetrics {
-  // Token breakdown from result message
-  inputTokens: number           // Tokens after last cache breakpoint
+  // Token breakdown from the LAST message (current context window state)
+  inputTokens: number           // Tokens after last cache breakpoint (uncached)
   outputTokens: number          // Claude's response tokens
   cacheReadTokens: number       // Tokens retrieved from cache
   cacheCreationTokens: number   // Tokens written to cache
-  // Calculated totals
-  totalInputTokens: number      // All input: input + cacheRead + cacheCreation
-  totalContextTokens: number    // Full context: totalInput + output
-  // Context window
-  contextLimit: number
-  contextPercentage: number     // totalContextTokens / contextLimit * 100
-  // Session info
+  // Context window calculation
+  // Context = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
+  // (output_tokens are NOT included - they're Claude's response, not context sent to Claude)
+  contextUsed: number           // Total tokens in context window
+  contextLimit: number          // Max context window (e.g., 200,000)
+  contextPercentage: number     // contextUsed / contextLimit * 100
+  // Session info (from result message - cumulative)
   totalCost: number
   numTurns: number
   durationMs: number
@@ -69,8 +69,7 @@ const EMPTY_METRICS: ContextMetrics = {
   outputTokens: 0,
   cacheReadTokens: 0,
   cacheCreationTokens: 0,
-  totalInputTokens: 0,
-  totalContextTokens: 0,
+  contextUsed: 0,
   contextLimit: DEFAULT_CONTEXT_WINDOW,
   contextPercentage: 0,
   totalCost: 0,
@@ -79,26 +78,18 @@ const EMPTY_METRICS: ContextMetrics = {
 }
 
 // ============================================
-// Claude Result Message Types (for parsing claudeMessage)
+// Types for parsing SDK messages
 // ============================================
 
-interface ClaudeResultUsage {
+interface UsageData {
   input_tokens?: number
   output_tokens?: number
   cache_read_input_tokens?: number
   cache_creation_input_tokens?: number
 }
 
-interface ClaudeModelUsageEntry {
-  inputTokens?: number
-  cacheReadInputTokens?: number
-  contextWindow?: number
-}
-
 interface ClaudeResultMessage {
   type: 'result'
-  usage?: ClaudeResultUsage
-  modelUsage?: Record<string, ClaudeModelUsageEntry>
   num_turns?: number
   duration_ms?: number
   total_cost_usd?: number
@@ -109,113 +100,107 @@ interface ClaudeResultMessage {
 // ============================================
 
 /**
- * Extract metrics from a nested claudeMessage object.
- * Used for backwards compatibility with older stored messages.
+ * Extract context usage from the last assistant/tool_use message.
+ *
+ * IMPORTANT: This gives us the CURRENT context window state, not cumulative billing tokens.
+ * The result message contains CUMULATIVE usage across all turns, which can exceed context limit.
+ * The per-message usage shows actual context consumed for that turn.
  */
-function extractFromClaudeMessage(claudeMessage: unknown): ContextMetrics | null {
-  if (!claudeMessage || typeof claudeMessage !== 'object') return null
+function extractContextFromLastMessage(messages: ConversationMessage[]): ContextMetrics | null {
+  // Search from end for the most recent assistant or tool_use message with usage data
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.type !== 'assistant' && m.type !== 'tool_use') continue
 
-  const msg = claudeMessage as ClaudeResultMessage
-  if (msg.type !== 'result' || !msg.usage) return null
+    // Check for usage in claudeMessage.message.usage (SDK format)
+    const claudeMsg = m.claudeMessage as { message?: { usage?: UsageData } } | undefined
+    const usage = claudeMsg?.message?.usage
+    if (!usage) continue
 
-  const usage = msg.usage
+    const inputTokens = usage.input_tokens || 0
+    const outputTokens = usage.output_tokens || 0
+    const cacheReadTokens = usage.cache_read_input_tokens || 0
+    const cacheCreationTokens = usage.cache_creation_input_tokens || 0
 
-  // Find context window from the model with most token usage
-  let contextLimit = DEFAULT_CONTEXT_WINDOW
-  if (msg.modelUsage) {
-    let maxTokens = 0
-    for (const modelData of Object.values(msg.modelUsage)) {
-      const tokens = (modelData.inputTokens || 0) + (modelData.cacheReadInputTokens || 0)
-      if (tokens > maxTokens && modelData.contextWindow) {
-        maxTokens = tokens
-        contextLimit = modelData.contextWindow
+    // Context = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
+    const contextUsed = inputTokens + cacheReadTokens + cacheCreationTokens
+    const contextLimit = DEFAULT_CONTEXT_WINDOW
+
+    const contextPercentage = contextLimit > 0
+      ? Math.min((contextUsed / contextLimit) * 100, 100)
+      : 0
+
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      contextUsed,
+      contextLimit,
+      contextPercentage,
+      totalCost: 0,
+      numTurns: 0,
+      durationMs: 0
+    }
+  }
+
+  return null
+}
+
+/**
+ * Extract session stats (cost, turns, duration) from result message.
+ * These are cumulative stats for billing/analytics, not context calculation.
+ */
+function extractSessionStats(messages: ConversationMessage[]): { totalCost: number; numTurns: number; durationMs: number } {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.type !== 'system') continue
+
+    // Check top-level fields first (new format)
+    if (m.costUsd !== undefined || m.numTurns !== undefined) {
+      return {
+        totalCost: m.costUsd || 0,
+        numTurns: m.numTurns || 0,
+        durationMs: m.durationMs || 0
+      }
+    }
+
+    // Fallback to claudeMessage (old format)
+    const claudeMsg = m.claudeMessage as ClaudeResultMessage | undefined
+    if (claudeMsg?.type === 'result') {
+      return {
+        totalCost: claudeMsg.total_cost_usd || 0,
+        numTurns: claudeMsg.num_turns || 0,
+        durationMs: claudeMsg.duration_ms || 0
       }
     }
   }
 
-  const inputTokens = usage.input_tokens || 0
-  const outputTokens = usage.output_tokens || 0
-  const cacheReadTokens = usage.cache_read_input_tokens || 0
-  const cacheCreationTokens = usage.cache_creation_input_tokens || 0
-
-  // Total input = all input token types (all count toward context)
-  const totalInputTokens = inputTokens + cacheReadTokens + cacheCreationTokens
-  // Total context = input + output (full context window usage)
-  const totalContextTokens = totalInputTokens + outputTokens
-  const contextPercentage = contextLimit > 0
-    ? Math.min((totalContextTokens / contextLimit) * 100, 100)
-    : 0
-
-  return {
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheCreationTokens,
-    totalInputTokens,
-    totalContextTokens,
-    contextLimit,
-    contextPercentage,
-    totalCost: msg.total_cost_usd || 0,
-    numTurns: msg.num_turns || 0,
-    durationMs: msg.duration_ms || 0
-  }
-}
-
-/**
- * Extract metrics from top-level message fields.
- * Used for new format where fields are extracted at storage time.
- */
-function extractFromMessageFields(m: ConversationMessage): ContextMetrics | null {
-  if (!m.inputTokens && !m.outputTokens) return null
-
-  const inputTokens = m.inputTokens || 0
-  const outputTokens = m.outputTokens || 0
-  const cacheReadTokens = m.cacheReadTokens || 0
-  const cacheCreationTokens = m.cacheCreationTokens || 0
-  const contextLimit = m.contextWindow || DEFAULT_CONTEXT_WINDOW
-
-  // Total input = all input token types (all count toward context)
-  const totalInputTokens = inputTokens + cacheReadTokens + cacheCreationTokens
-  // Total context = input + output (full context window usage)
-  const totalContextTokens = totalInputTokens + outputTokens
-  const contextPercentage = contextLimit > 0
-    ? Math.min((totalContextTokens / contextLimit) * 100, 100)
-    : 0
-
-  return {
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheCreationTokens,
-    totalInputTokens,
-    totalContextTokens,
-    contextLimit,
-    contextPercentage,
-    totalCost: m.costUsd || 0,
-    numTurns: m.numTurns || 0,
-    durationMs: m.durationMs || 0
-  }
+  return { totalCost: 0, numTurns: 0, durationMs: 0 }
 }
 
 /**
  * Calculate context metrics from conversation messages.
  *
- * Finds the latest result message (type: 'system') and extracts token usage.
- * Supports both new format (top-level fields) and old format (nested claudeMessage).
+ * IMPORTANT: Context usage comes from the LAST assistant/tool_use message,
+ * not from the result message. The result message contains CUMULATIVE billing
+ * tokens across all turns, which can exceed the context limit. The per-message
+ * usage shows the actual context window state for that turn.
  */
 export function calculateContextMetrics(messages: ConversationMessage[]): ContextMetrics {
-  // Search from end for the most recent system message with result data
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]
-    if (m.type !== 'system') continue
+  // Get current context usage from last assistant/tool_use message
+  const contextMetrics = extractContextFromLastMessage(messages)
 
-    // Try new format first (top-level fields)
-    const fromFields = extractFromMessageFields(m)
-    if (fromFields) return fromFields
+  // Get session stats from result message (for cost/turns/duration)
+  const sessionStats = extractSessionStats(messages)
 
-    // Fallback to old format (nested claudeMessage)
-    const fromClaude = extractFromClaudeMessage(m.claudeMessage)
-    if (fromClaude) return fromClaude
+  if (contextMetrics) {
+    return {
+      ...contextMetrics,
+      totalCost: sessionStats.totalCost,
+      numTurns: sessionStats.numTurns,
+      durationMs: sessionStats.durationMs
+    }
   }
 
   return EMPTY_METRICS

@@ -1,4 +1,5 @@
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { SplitPaneToggle } from './SplitPaneToggle'
 import type { Tab } from '../../types'
 
 // SVG Icons
@@ -28,9 +29,11 @@ interface TabItemProps {
   workspaceName?: string
   onActivate: () => void
   onClose: (e: React.MouseEvent) => void
+  onDragStart: () => void
+  onDragEnd: () => void
 }
 
-function TabItem({ tab, isActive, workspaceName, onActivate, onClose }: TabItemProps) {
+function TabItem({ tab, isActive, workspaceName, onActivate, onClose, onDragStart, onDragEnd }: TabItemProps) {
   const handleMiddleClick = (e: React.MouseEvent) => {
     if (e.button === 1) {
       e.preventDefault()
@@ -49,12 +52,26 @@ function TabItem({ tab, isActive, workspaceName, onActivate, onClose }: TabItemP
 
   const Icon = tab.type === 'chat' ? ChatIcon : FileIcon
 
+  const handleDragStart = (e: React.DragEvent) => {
+    // Set drag data
+    e.dataTransfer.setData('text/plain', tab.id)
+    e.dataTransfer.effectAllowed = 'move'
+    onDragStart()
+  }
+
+  const handleDragEnd = () => {
+    onDragEnd()
+  }
+
   return (
     <div
+      draggable
       onClick={onActivate}
       onMouseDown={handleMiddleClick}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       className={`
-        group flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer
+        group flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-grab
         border-r border-default min-w-0 max-w-[200px]
         ${isActive
           ? 'bg-main text-primary border-b-2 border-b-accent'
@@ -87,13 +104,23 @@ function TabItem({ tab, isActive, workspaceName, onActivate, onClose }: TabItemP
   )
 }
 
-export function TabBar() {
-  const { tabs, activeTabId, activateTab, closeTab, workspaces } = useWorkspaceStore()
+interface TabBarProps {
+  onTabDragStart?: (tabId: string) => void
+  onTabDragEnd?: () => void
+}
 
-  // Don't render if no tabs
-  if (tabs.length === 0) {
-    return null
-  }
+export function TabBar({ onTabDragStart, onTabDragEnd }: TabBarProps) {
+  const {
+    tabs,
+    activeTabId,
+    activateTab,
+    closeTab,
+    workspaces,
+    splitPaneEnabled,
+    splitPaneOrientation,
+    toggleSplitPane,
+    setSplitPaneOrientation
+  } = useWorkspaceStore()
 
   // Helper to get workspace name for a tab
   const getWorkspaceName = (tab: Tab): string | undefined => {
@@ -104,21 +131,60 @@ export function TabBar() {
     return undefined
   }
 
+  // Show the bar if there are tabs OR if split pane is enabled
+  const hasTabs = tabs.length > 0
+  const shouldShowBar = hasTabs || splitPaneEnabled
+
+  // Don't render anything if there's nothing to show
+  if (!shouldShowBar) {
+    return null
+  }
+
+  // In split mode, hide main tab bar entirely (tabs and toggle are in pane tab bars)
+  if (splitPaneEnabled) {
+    return null
+  }
+
+  // Single pane mode - show tabs and split toggle
   return (
-    <div className="flex bg-sidebar border-b border-default overflow-x-auto">
-      {tabs.map((tab) => (
-        <TabItem
-          key={tab.id}
-          tab={tab}
-          isActive={tab.id === activeTabId}
-          workspaceName={getWorkspaceName(tab)}
-          onActivate={() => activateTab(tab.id)}
-          onClose={(e) => {
-            e.stopPropagation()
-            closeTab(tab.id)
+    <div className="flex items-center bg-sidebar border-b border-default">
+      {/* Tabs - scrollable */}
+      <div className="flex-1 flex overflow-x-auto">
+        {tabs.map((tab) => (
+          <TabItem
+            key={tab.id}
+            tab={tab}
+            isActive={tab.id === activeTabId}
+            workspaceName={getWorkspaceName(tab)}
+            onActivate={() => activateTab(tab.id)}
+            onClose={(e) => {
+              e.stopPropagation()
+              closeTab(tab.id)
+            }}
+            onDragStart={() => onTabDragStart?.(tab.id)}
+            onDragEnd={() => onTabDragEnd?.()}
+          />
+        ))}
+      </div>
+
+      {/* Split pane toggle */}
+      <div className={`flex items-center px-2 ${hasTabs ? 'border-l border-default' : ''}`}>
+        <SplitPaneToggle
+          enabled={splitPaneEnabled}
+          orientation={splitPaneOrientation}
+          onDisable={() => {
+            if (splitPaneEnabled) toggleSplitPane()
+          }}
+          onVertical={() => {
+            if (!splitPaneEnabled) toggleSplitPane()
+            setSplitPaneOrientation('vertical')
+          }}
+          onHorizontal={() => {
+            if (!splitPaneEnabled) toggleSplitPane()
+            setSplitPaneOrientation('horizontal')
           }}
         />
-      ))}
+      </div>
     </div>
   )
 }

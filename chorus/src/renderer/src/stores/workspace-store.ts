@@ -1,5 +1,12 @@
 import { create } from 'zustand'
-import type { Workspace, ChorusSettings, Tab, SlashCommand } from '../types'
+import type { Workspace, ChorusSettings, Tab, SlashCommand, TabGroup } from '../types'
+
+// Helper to create empty tab group
+const createEmptyTabGroup = (id: string): TabGroup => ({
+  id,
+  tabIds: [],
+  activeTabId: null
+})
 
 interface WorkspaceStore {
   // State
@@ -27,6 +34,14 @@ interface WorkspaceStore {
     message: string
   } | null
 
+  // Split pane state
+  splitPaneEnabled: boolean
+  splitPaneRatio: number      // 0-100, percentage for first pane
+  splitPaneOrientation: 'vertical' | 'horizontal'  // vertical = top/bottom, horizontal = left/right
+  firstPaneGroup: TabGroup    // Tab group for first pane
+  secondPaneGroup: TabGroup   // Tab group for second pane
+  activePaneId: 'first' | 'second'  // Which pane is focused
+
   // Actions
   loadWorkspaces: () => Promise<void>
   loadSettings: () => Promise<void>
@@ -53,6 +68,17 @@ interface WorkspaceStore {
   loadCommands: (workspaceId: string) => Promise<void>
   refreshCommands: (workspaceId: string) => Promise<void>
   getCommands: (workspaceId: string) => SlashCommand[]
+
+  // Split pane actions
+  toggleSplitPane: () => void
+  setSplitPaneRatio: (ratio: number) => void
+  setSplitPaneOrientation: (orientation: 'vertical' | 'horizontal') => void
+  swapSplitPanes: () => void
+  setActivePaneTab: (paneId: 'first' | 'second', tabId: string) => void
+  moveTabToPane: (tabId: string, targetPaneId: 'first' | 'second') => void
+  closeTabInPane: (paneId: 'first' | 'second', tabId: string) => void
+  setActivePane: (paneId: 'first' | 'second') => void
+  saveSplitPaneSettings: () => Promise<void>
 }
 
 // Generate UUID for tabs
@@ -74,6 +100,13 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   activeTabId: null,
   workspaceCommands: new Map(),
   cloneProgress: null,
+  // Split pane defaults
+  splitPaneEnabled: false,
+  splitPaneRatio: 50,
+  splitPaneOrientation: 'vertical',
+  firstPaneGroup: createEmptyTabGroup('first'),
+  secondPaneGroup: createEmptyTabGroup('second'),
+  activePaneId: 'first',
 
   // Load all workspaces
   loadWorkspaces: async () => {
@@ -104,6 +137,16 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       const result = await window.api.settings.get()
       if (result.success && result.data) {
         set({ settings: result.data })
+        // Load split pane settings if present
+        if (result.data.splitPane) {
+          set({
+            splitPaneEnabled: result.data.splitPane.enabled,
+            splitPaneRatio: result.data.splitPane.ratio,
+            splitPaneOrientation: result.data.splitPane.orientation || 'vertical',
+            firstPaneGroup: result.data.splitPane.firstPaneGroup || createEmptyTabGroup('first'),
+            secondPaneGroup: result.data.splitPane.secondPaneGroup || createEmptyTabGroup('second')
+          })
+        }
       }
     } catch {
       // Silently fail - will use default settings
@@ -242,7 +285,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       return
     }
 
-    const { tabs, openTab, selectedWorkspaceId } = get()
+    const { tabs, openTab, selectedWorkspaceId, splitPaneEnabled, firstPaneGroup, secondPaneGroup } = get()
     const filename = filePath.split('/').pop() || 'File'
 
     // Check if tab already exists
@@ -253,6 +296,21 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         selectedConversationId: null,
         activeTabId: existingTab.id
       })
+
+      // If split mode, also activate in the correct pane group
+      if (splitPaneEnabled) {
+        if (firstPaneGroup.tabIds.includes(existingTab.id)) {
+          set({
+            firstPaneGroup: { ...firstPaneGroup, activeTabId: existingTab.id },
+            activePaneId: 'first'
+          })
+        } else if (secondPaneGroup.tabIds.includes(existingTab.id)) {
+          set({
+            secondPaneGroup: { ...secondPaneGroup, activeTabId: existingTab.id },
+            activePaneId: 'second'
+          })
+        }
+      }
     } else {
       // Create new tab with current workspace context
       const tabId = openTab({
@@ -271,7 +329,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   // Select a conversation and open it as a chat tab
   selectConversation: (conversationId: string, agentId: string, workspaceId: string, title: string) => {
-    const { tabs, openTab } = get()
+    const { tabs, openTab, splitPaneEnabled, firstPaneGroup, secondPaneGroup } = get()
 
     // Check if chat tab already exists for this conversation
     const existingTab = tabs.find(t => t.type === 'chat' && t.conversationId === conversationId)
@@ -283,6 +341,21 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         selectedFilePath: null,
         activeTabId: existingTab.id
       })
+
+      // If split mode, also activate in the correct pane group
+      if (splitPaneEnabled) {
+        if (firstPaneGroup.tabIds.includes(existingTab.id)) {
+          set({
+            firstPaneGroup: { ...firstPaneGroup, activeTabId: existingTab.id },
+            activePaneId: 'first'
+          })
+        } else if (secondPaneGroup.tabIds.includes(existingTab.id)) {
+          set({
+            secondPaneGroup: { ...secondPaneGroup, activeTabId: existingTab.id },
+            activePaneId: 'second'
+          })
+        }
+      }
     } else {
       // Create new chat tab
       const tabId = openTab({
@@ -336,11 +409,27 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   openTab: (tabData: Omit<Tab, 'id'>) => {
     const id = generateTabId()
     const newTab: Tab = { ...tabData, id }
+    const { splitPaneEnabled, activePaneId, firstPaneGroup, secondPaneGroup } = get()
 
+    // Add to main tabs array
     set(state => ({
       tabs: [...state.tabs, newTab],
       activeTabId: id
     }))
+
+    // If split mode is enabled, also add to the active pane's group
+    if (splitPaneEnabled) {
+      const targetKey = activePaneId === 'first' ? 'firstPaneGroup' : 'secondPaneGroup'
+      const targetGroup = activePaneId === 'first' ? firstPaneGroup : secondPaneGroup
+      set({
+        [targetKey]: {
+          ...targetGroup,
+          tabIds: [...targetGroup.tabIds, id],
+          activeTabId: id
+        }
+      })
+      get().saveSplitPaneSettings()
+    }
 
     // Persist tabs
     get().saveTabs()
@@ -349,7 +438,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   closeTab: (tabId: string) => {
-    const { tabs, activeTabId } = get()
+    const { tabs, activeTabId, splitPaneEnabled, firstPaneGroup, secondPaneGroup } = get()
     const tabIndex = tabs.findIndex(t => t.id === tabId)
     if (tabIndex === -1) return
 
@@ -375,6 +464,36 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       selectedFilePath: newActiveTab?.type === 'file' ? newActiveTab.filePath || null : null,
       selectedWorkspaceId: newActiveTab?.workspaceId || get().selectedWorkspaceId
     })
+
+    // Also remove from pane groups if split mode is enabled
+    if (splitPaneEnabled) {
+      const updates: Record<string, TabGroup> = {}
+
+      if (firstPaneGroup.tabIds.includes(tabId)) {
+        const newTabIds = firstPaneGroup.tabIds.filter(id => id !== tabId)
+        const idx = firstPaneGroup.tabIds.indexOf(tabId)
+        let newActiveId = firstPaneGroup.activeTabId
+        if (firstPaneGroup.activeTabId === tabId) {
+          newActiveId = newTabIds.length > 0 ? (idx > 0 ? newTabIds[idx - 1] : newTabIds[0]) : null
+        }
+        updates.firstPaneGroup = { ...firstPaneGroup, tabIds: newTabIds, activeTabId: newActiveId }
+      }
+
+      if (secondPaneGroup.tabIds.includes(tabId)) {
+        const newTabIds = secondPaneGroup.tabIds.filter(id => id !== tabId)
+        const idx = secondPaneGroup.tabIds.indexOf(tabId)
+        let newActiveId = secondPaneGroup.activeTabId
+        if (secondPaneGroup.activeTabId === tabId) {
+          newActiveId = newTabIds.length > 0 ? (idx > 0 ? newTabIds[idx - 1] : newTabIds[0]) : null
+        }
+        updates.secondPaneGroup = { ...secondPaneGroup, tabIds: newTabIds, activeTabId: newActiveId }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        set(updates)
+        get().saveSplitPaneSettings()
+      }
+    }
 
     // Persist tabs
     get().saveTabs()
@@ -477,5 +596,199 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   getCommands: (workspaceId: string) => {
     return get().workspaceCommands.get(workspaceId) || []
+  },
+
+  // Split pane actions
+  toggleSplitPane: () => {
+    const { splitPaneEnabled, tabs, firstPaneGroup, secondPaneGroup } = get()
+    const newEnabled = !splitPaneEnabled
+
+    if (newEnabled && tabs.length >= 1) {
+      // When enabling split, ensure ALL tabs are assigned to a group
+      // Find tabs that aren't in either group
+      const assignedTabIds = new Set([...firstPaneGroup.tabIds, ...secondPaneGroup.tabIds])
+      const unassignedTabs = tabs.filter(t => !assignedTabIds.has(t.id))
+
+      if (unassignedTabs.length > 0 || assignedTabIds.size === 0) {
+        // Need to distribute tabs
+        // Start with existing group assignments, then add unassigned tabs
+        let newFirstTabIds = [...firstPaneGroup.tabIds]
+        let newSecondTabIds = [...secondPaneGroup.tabIds]
+
+        if (assignedTabIds.size === 0) {
+          // No tabs assigned yet - distribute all evenly
+          const midpoint = Math.ceil(tabs.length / 2)
+          newFirstTabIds = tabs.slice(0, midpoint).map(t => t.id)
+          newSecondTabIds = tabs.slice(midpoint).map(t => t.id)
+        } else {
+          // Add unassigned tabs to the first pane (or distribute evenly)
+          for (const tab of unassignedTabs) {
+            // Add to the smaller group to balance
+            if (newFirstTabIds.length <= newSecondTabIds.length) {
+              newFirstTabIds.push(tab.id)
+            } else {
+              newSecondTabIds.push(tab.id)
+            }
+          }
+        }
+
+        // Determine active tab for each pane - use existing if valid, otherwise first tab
+        const firstActiveTab = newFirstTabIds.includes(firstPaneGroup.activeTabId || '')
+          ? firstPaneGroup.activeTabId
+          : newFirstTabIds[0] || null
+        const secondActiveTab = newSecondTabIds.includes(secondPaneGroup.activeTabId || '')
+          ? secondPaneGroup.activeTabId
+          : newSecondTabIds[0] || null
+
+        set({
+          splitPaneEnabled: newEnabled,
+          firstPaneGroup: {
+            id: 'first',
+            tabIds: newFirstTabIds,
+            activeTabId: firstActiveTab
+          },
+          secondPaneGroup: {
+            id: 'second',
+            tabIds: newSecondTabIds,
+            activeTabId: secondActiveTab
+          },
+          activePaneId: 'first'
+        })
+      } else {
+        // All tabs already assigned
+        set({ splitPaneEnabled: newEnabled })
+      }
+    } else {
+      // Disabling split - keep tabs but disable split view
+      set({ splitPaneEnabled: newEnabled })
+    }
+    get().saveSplitPaneSettings()
+  },
+
+  setSplitPaneRatio: (ratio: number) => {
+    // Clamp between 10 and 90 to ensure both panes are usable
+    const clampedRatio = Math.min(Math.max(ratio, 10), 90)
+    set({ splitPaneRatio: clampedRatio })
+  },
+
+  setSplitPaneOrientation: (orientation: 'vertical' | 'horizontal') => {
+    set({ splitPaneOrientation: orientation })
+    get().saveSplitPaneSettings()
+  },
+
+  swapSplitPanes: () => {
+    const { firstPaneGroup, secondPaneGroup } = get()
+    set({
+      firstPaneGroup: { ...secondPaneGroup, id: 'first' },
+      secondPaneGroup: { ...firstPaneGroup, id: 'second' }
+    })
+    get().saveSplitPaneSettings()
+  },
+
+  setActivePaneTab: (paneId: 'first' | 'second', tabId: string) => {
+    const key = paneId === 'first' ? 'firstPaneGroup' : 'secondPaneGroup'
+    const group = get()[key]
+    set({
+      [key]: { ...group, activeTabId: tabId },
+      activePaneId: paneId
+    })
+    get().saveSplitPaneSettings()
+  },
+
+  moveTabToPane: (tabId: string, targetPaneId: 'first' | 'second') => {
+    const { firstPaneGroup, secondPaneGroup } = get()
+    const isInFirst = firstPaneGroup.tabIds.includes(tabId)
+    const isInSecond = secondPaneGroup.tabIds.includes(tabId)
+
+    // Tab not in either group (from main tab bar) - add to target
+    if (!isInFirst && !isInSecond) {
+      const targetGroup = targetPaneId === 'first' ? firstPaneGroup : secondPaneGroup
+      const targetKey = targetPaneId === 'first' ? 'firstPaneGroup' : 'secondPaneGroup'
+      set({
+        [targetKey]: {
+          ...targetGroup,
+          tabIds: [...targetGroup.tabIds, tabId],
+          activeTabId: tabId
+        },
+        activePaneId: targetPaneId
+      })
+      get().saveSplitPaneSettings()
+      return
+    }
+
+    const sourceKey = isInFirst ? 'firstPaneGroup' : 'secondPaneGroup'
+    const targetKey = targetPaneId === 'first' ? 'firstPaneGroup' : 'secondPaneGroup'
+
+    if (sourceKey === targetKey) return // Already in target pane
+
+    const sourceGroup = isInFirst ? firstPaneGroup : secondPaneGroup
+    const targetGroup = targetPaneId === 'first' ? firstPaneGroup : secondPaneGroup
+
+    // Remove from source
+    const newSourceTabIds = sourceGroup.tabIds.filter(id => id !== tabId)
+    const newSourceActiveTabId = sourceGroup.activeTabId === tabId
+      ? (newSourceTabIds[0] || null)
+      : sourceGroup.activeTabId
+
+    // Add to target
+    const newTargetTabIds = [...targetGroup.tabIds, tabId]
+
+    set({
+      [sourceKey]: { ...sourceGroup, tabIds: newSourceTabIds, activeTabId: newSourceActiveTabId },
+      [targetKey]: { ...targetGroup, tabIds: newTargetTabIds, activeTabId: tabId },
+      activePaneId: targetPaneId
+    })
+    get().saveSplitPaneSettings()
+  },
+
+  closeTabInPane: (paneId: 'first' | 'second', tabId: string) => {
+    const key = paneId === 'first' ? 'firstPaneGroup' : 'secondPaneGroup'
+    const group = get()[key]
+
+    const tabIndex = group.tabIds.indexOf(tabId)
+    if (tabIndex === -1) return
+
+    const newTabIds = group.tabIds.filter(id => id !== tabId)
+    let newActiveTabId = group.activeTabId
+    if (group.activeTabId === tabId) {
+      // Select adjacent tab
+      if (newTabIds.length === 0) {
+        newActiveTabId = null
+      } else if (tabIndex > 0) {
+        newActiveTabId = newTabIds[tabIndex - 1]
+      } else {
+        newActiveTabId = newTabIds[0]
+      }
+    }
+
+    set({
+      [key]: { ...group, tabIds: newTabIds, activeTabId: newActiveTabId }
+    })
+
+    // Also close the tab from the main tabs list
+    get().closeTab(tabId)
+  },
+
+  setActivePane: (paneId: 'first' | 'second') => {
+    set({ activePaneId: paneId })
+  },
+
+  saveSplitPaneSettings: async () => {
+    if (!window.api) return
+
+    const { splitPaneEnabled, splitPaneRatio, splitPaneOrientation, firstPaneGroup, secondPaneGroup } = get()
+    try {
+      await window.api.settings.set({
+        splitPane: {
+          enabled: splitPaneEnabled,
+          ratio: splitPaneRatio,
+          orientation: splitPaneOrientation,
+          firstPaneGroup,
+          secondPaneGroup
+        }
+      })
+    } catch {
+      // Silently fail
+    }
   }
 }))

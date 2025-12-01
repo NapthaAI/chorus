@@ -5,6 +5,7 @@ type RightPanelTab = 'files' | 'details'
 interface UIStore {
   // Left panel state
   leftPanelWidth: number
+  leftPanelCollapsed: boolean
 
   // Right panel state
   rightPanelTab: RightPanelTab
@@ -17,11 +18,14 @@ interface UIStore {
 
   // Left panel actions
   setLeftPanelWidth: (width: number) => void
+  setLeftPanelCollapsed: (collapsed: boolean) => void
+  toggleLeftPanel: () => void
 
   // Right panel actions
   setRightPanelTab: (tab: RightPanelTab) => void
   setRightPanelWidth: (width: number) => void
   setRightPanelCollapsed: (collapsed: boolean) => void
+  toggleRightPanel: () => void
 
   // Dialog actions
   openSettings: () => void
@@ -30,9 +34,10 @@ interface UIStore {
   closeAddWorkspace: () => void
 }
 
-export const useUIStore = create<UIStore>((set) => ({
+export const useUIStore = create<UIStore>((set, get) => ({
   // Initial state - Left panel
   leftPanelWidth: 300,
+  leftPanelCollapsed: false,
 
   // Initial state - Right panel
   rightPanelTab: 'files',
@@ -45,11 +50,14 @@ export const useUIStore = create<UIStore>((set) => ({
 
   // Left panel actions
   setLeftPanelWidth: (width) => set({ leftPanelWidth: Math.max(250, Math.min(500, width)) }),
+  setLeftPanelCollapsed: (collapsed) => set({ leftPanelCollapsed: collapsed }),
+  toggleLeftPanel: () => set({ leftPanelCollapsed: !get().leftPanelCollapsed }),
 
   // Right panel actions
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
   setRightPanelWidth: (width) => set({ rightPanelWidth: Math.max(200, Math.min(400, width)) }),
   setRightPanelCollapsed: (collapsed) => set({ rightPanelCollapsed: collapsed }),
+  toggleRightPanel: () => set({ rightPanelCollapsed: !get().rightPanelCollapsed }),
 
   // Dialog actions
   openSettings: () => set({ isSettingsOpen: true }),

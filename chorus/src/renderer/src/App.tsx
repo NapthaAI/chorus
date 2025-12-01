@@ -14,15 +14,18 @@ const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 600
 
 function App() {
-  const { loadWorkspaces, loadSettings } = useWorkspaceStore()
+  const { loadWorkspaces, loadSettings, toggleSplitPane } = useWorkspaceStore()
   const {
     isSettingsOpen,
     isAddWorkspaceOpen,
     leftPanelWidth,
     setLeftPanelWidth,
+    leftPanelCollapsed,
+    toggleLeftPanel,
     rightPanelWidth,
     setRightPanelWidth,
-    rightPanelCollapsed
+    rightPanelCollapsed,
+    toggleRightPanel
   } = useUIStore()
   const { pendingPermissionRequest, respondToPermission, initEventListeners } = useChatStore()
 
@@ -65,10 +68,34 @@ function App() {
     }
   }, [initEventListeners])
 
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + \ to toggle split pane
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault()
+        toggleSplitPane()
+      }
+      // Cmd/Ctrl + B to toggle left sidebar
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault()
+        toggleLeftPanel()
+      }
+      // Cmd/Ctrl + Shift + B to toggle right sidebar
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'B') {
+        e.preventDefault()
+        toggleRightPanel()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [toggleSplitPane, toggleLeftPanel, toggleRightPanel])
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-main text-primary">
       <Sidebar />
-      <ResizeHandle position="left" onResize={handleLeftResize} />
+      {!leftPanelCollapsed && <ResizeHandle position="left" onResize={handleLeftResize} />}
       <MainPane />
       {!rightPanelCollapsed && <ResizeHandle position="right" onResize={handleRightResize} />}
       <RightPanel />

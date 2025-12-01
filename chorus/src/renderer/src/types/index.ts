@@ -4,6 +4,8 @@ export type {
   Workspace,
   Tab,
   OpenTabsState,
+  TabGroup,
+  SplitPaneSettings,
   ChorusSettings,
   DirectoryEntry,
   GitChange,

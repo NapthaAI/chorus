@@ -121,8 +121,8 @@ export function RightPanel() {
       <div className="h-10 titlebar-drag-region flex-shrink-0 flex items-center justify-end px-2">
         <button
           onClick={() => setRightPanelCollapsed(true)}
-          className="p-1 text-muted hover:text-white transition-colors"
-          title="Collapse panel"
+          className="p-1 text-muted hover:text-white transition-colors titlebar-no-drag"
+          title="Collapse panel (Cmd/Ctrl+Shift+B)"
         >
           <ChevronRightIcon />
         </button>

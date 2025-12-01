@@ -49,12 +49,29 @@ interface OpenTabsState {
   activeTabId: string | null
 }
 
+// Tab group for split pane - each pane has its own group of tabs
+interface TabGroup {
+  id: string                    // 'first' or 'second'
+  tabIds: string[]              // Ordered list of tab IDs in this group
+  activeTabId: string | null    // Currently active tab in this group
+}
+
+// Split pane settings for dual-pane view
+interface SplitPaneSettings {
+  enabled: boolean
+  ratio: number              // 0-100, percentage for first pane (top or left)
+  orientation: 'vertical' | 'horizontal'  // vertical = top/bottom, horizontal = left/right
+  firstPaneGroup: TabGroup      // Tab group for first pane (top/left)
+  secondPaneGroup: TabGroup     // Tab group for second pane (bottom/right)
+}
+
 interface ChorusSettings {
   rootWorkspaceDir: string
   theme: 'dark' | 'light'
   chatSidebarCollapsed: boolean
   chatSidebarWidth: number
   openTabs?: OpenTabsState
+  splitPane?: SplitPaneSettings
 }
 
 // ============================================
@@ -492,6 +509,8 @@ export type {
   Workspace,
   Tab,
   OpenTabsState,
+  TabGroup,
+  SplitPaneSettings,
   ChorusSettings,
   DirectoryEntry,
   GitChange,

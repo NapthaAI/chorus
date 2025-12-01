@@ -71,6 +71,7 @@ export function BranchSelector({ currentBranch, workspacePath, onBranchChange }:
   const [isDeleting, setIsDeleting] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const triggerFileTreeRefresh = useFileTreeStore((state) => state.triggerRefresh)
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -141,6 +142,7 @@ export function BranchSelector({ currentBranch, workspacePath, onBranchChange }:
           ? branch.name.split('/').slice(1).join('/')
           : branch.name
         onBranchChange(localName)
+        triggerFileTreeRefresh() // Refresh file tree since files changed on disk
         setIsOpen(false)
       } else {
         setError(result.error || 'Failed to checkout branch')

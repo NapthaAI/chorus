@@ -116,33 +116,27 @@ export function MessageInput({ agent, workspace }: MessageInputProps) {
     }, 0)
   }
 
-  // Execute slash command
+  // Execute slash command - send the command text directly to the SDK
   const executeSlashCommand = async (command: SlashCommand) => {
     closeCommand()
 
-    // Extract args from message (everything after command name)
+    // Extract args from current message (everything after command name)
     const commandWithSlash = `/${command.name}`
     const fullMessage = message.trim()
 
-    // Check if message starts with the command
-    let args = ''
+    // Build the full command message
+    let commandMessage = commandWithSlash
     if (fullMessage.startsWith(commandWithSlash)) {
-      args = fullMessage.slice(commandWithSlash.length).trim()
+      // Keep any args the user typed
+      const args = fullMessage.slice(commandWithSlash.length).trim()
+      if (args) {
+        commandMessage = `${commandWithSlash} ${args}`
+      }
     }
 
-    try {
-      const result = await window.api.commands.execute(workspace.id, command.name, args)
-      if (result.success && result.data) {
-        // Clear input and send the rendered prompt
-        setMessage('')
-        await sendMessage(result.data, workspace.id, agent.id, workspace.path, agent.filePath)
-      } else {
-        // Show error - for now just log it
-        console.error('Failed to execute command:', result.error)
-      }
-    } catch (error) {
-      console.error('Failed to execute command:', error)
-    }
+    // Clear input and send the slash command directly - SDK will handle it
+    setMessage('')
+    await sendMessage(commandMessage, workspace.id, agent.id, workspace.path, agent.filePath)
 
     // Refocus
     textareaRef.current?.focus()

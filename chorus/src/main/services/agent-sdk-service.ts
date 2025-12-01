@@ -446,7 +446,9 @@ export async function sendMessageSDK(
     const abortController = new AbortController()
     const options: Parameters<typeof query>[0]['options'] = {
       cwd: repoPath,
-      abortController
+      abortController,
+      // Enable project and user settings for slash commands
+      settingSources: ['project', 'user']
     }
 
     // Add model if not default
@@ -470,8 +472,22 @@ export async function sendMessageSDK(
     }
 
     // Add system prompt for new sessions
-    if (systemPromptContent && !effectiveSessionId) {
-      options.systemPrompt = systemPromptContent
+    // Use claude_code preset with optional custom append for agent-specific instructions
+    if (!effectiveSessionId) {
+      if (systemPromptContent) {
+        // Use claude_code preset with custom instructions appended
+        (options as { systemPrompt?: unknown }).systemPrompt = {
+          type: 'preset',
+          preset: 'claude_code',
+          append: systemPromptContent
+        }
+      } else {
+        // Use claude_code preset for slash commands support
+        (options as { systemPrompt?: unknown }).systemPrompt = {
+          type: 'preset',
+          preset: 'claude_code'
+        }
+      }
     }
 
     // Add canUseTool callback for permission handling

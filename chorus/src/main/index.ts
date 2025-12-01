@@ -30,7 +30,7 @@ import {
   discoverCommands,
   executeCommand
 } from './services/slash-command-service'
-import { listDirectory, readFile, writeFile, walkDirectory } from './services/fs-service'
+import { listDirectory, readFile, writeFile, walkDirectory, deleteFile, renameFile, createFile, createDirectory, pathExists } from './services/fs-service'
 import {
   isRepo,
   getStatus,
@@ -52,7 +52,10 @@ import {
   getAgentBranches,
   stash,
   stashPop,
-  push
+  push,
+  discardChanges,
+  stageFile,
+  unstageFile
 } from './services/git-service'
 import {
   listConversations,
@@ -304,6 +307,51 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('fs:delete', async (_event, path: string) => {
+    try {
+      await deleteFile(path)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('fs:rename', async (_event, oldPath: string, newPath: string) => {
+    try {
+      await renameFile(oldPath, newPath)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('fs:create-file', async (_event, path: string, content?: string) => {
+    try {
+      await createFile(path, content || '')
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('fs:create-directory', async (_event, path: string) => {
+    try {
+      await createDirectory(path)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('fs:exists', async (_event, path: string) => {
+    try {
+      const exists = await pathExists(path)
+      return { success: true, data: exists }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
   // ============================================
   // DIALOG IPC HANDLERS
   // ============================================
@@ -513,6 +561,33 @@ app.whenReady().then(() => {
       }
     }
   )
+
+  ipcMain.handle('git:discard-changes', async (_event, repoPath: string, filePath: string) => {
+    try {
+      await discardChanges(repoPath, filePath)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:stage-file', async (_event, repoPath: string, filePath: string) => {
+    try {
+      await stageFile(repoPath, filePath)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:unstage-file', async (_event, repoPath: string, filePath: string) => {
+    try {
+      await unstageFile(repoPath, filePath)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
 
   // ============================================
   // CONVERSATION IPC HANDLERS

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 type RightPanelTab = 'files' | 'details'
+type WorkspaceOverviewTab = 'agents' | 'git' | 'settings'
 
 interface UIStore {
   // Left panel state
@@ -15,6 +16,9 @@ interface UIStore {
   // Dialog state
   isSettingsOpen: boolean
   isAddWorkspaceOpen: boolean
+
+  // Workspace overview tab
+  workspaceOverviewTab: WorkspaceOverviewTab
 
   // Left panel actions
   setLeftPanelWidth: (width: number) => void
@@ -32,6 +36,9 @@ interface UIStore {
   closeSettings: () => void
   openAddWorkspace: () => void
   closeAddWorkspace: () => void
+
+  // Workspace overview actions
+  setWorkspaceOverviewTab: (tab: WorkspaceOverviewTab) => void
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
@@ -48,6 +55,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isSettingsOpen: false,
   isAddWorkspaceOpen: false,
 
+  // Initial state - Workspace overview tab
+  workspaceOverviewTab: 'agents',
+
   // Left panel actions
   setLeftPanelWidth: (width) => set({ leftPanelWidth: Math.max(250, Math.min(500, width)) }),
   setLeftPanelCollapsed: (collapsed) => set({ leftPanelCollapsed: collapsed }),
@@ -63,5 +73,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   openSettings: () => set({ isSettingsOpen: true }),
   closeSettings: () => set({ isSettingsOpen: false }),
   openAddWorkspace: () => set({ isAddWorkspaceOpen: true }),
-  closeAddWorkspace: () => set({ isAddWorkspaceOpen: false })
+  closeAddWorkspace: () => set({ isAddWorkspaceOpen: false }),
+
+  // Workspace overview actions
+  setWorkspaceOverviewTab: (tab) => set({ workspaceOverviewTab: tab })
 }))

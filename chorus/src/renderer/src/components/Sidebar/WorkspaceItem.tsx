@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AgentItem } from './AgentItem'
 import { BranchSelector } from './BranchSelector'
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { useFileTreeStore } from '../../stores/file-tree-store'
 import type { Workspace } from '../../types'
 
 interface WorkspaceItemProps {
@@ -48,11 +49,14 @@ export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
     removeWorkspace,
     refreshWorkspace
   } = useWorkspaceStore()
+  const triggerFileTreeRefresh = useFileTreeStore((state) => state.triggerRefresh)
   const [showContextMenu, setShowContextMenu] = useState(false)
 
   const handleBranchChange = async () => {
     // Refresh the workspace to update branch info and dirty state
     await refreshWorkspace(workspace.id)
+    // Trigger file tree refresh to show files from new branch
+    triggerFileTreeRefresh()
   }
 
   const isSelected = selectedWorkspaceId === workspace.id

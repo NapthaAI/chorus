@@ -62,13 +62,50 @@ const ChevronRightIcon = () => (
   </svg>
 )
 
+
+// Simple VS Code style confirmation dialog
+interface DeleteConfirmDialogProps {
+  branchName: string
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+function DeleteConfirmDialog({ branchName, onConfirm, onCancel }: DeleteConfirmDialogProps) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-start justify-center pt-[15%] z-50">
+      <div className="bg-surface border border-default rounded shadow-lg w-[400px]">
+        <div className="p-4">
+          <p className="text-primary text-sm">
+            Delete branch <span className="font-mono text-secondary">{branchName}</span>?
+          </p>
+        </div>
+        <div className="px-4 pb-3 flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-sm rounded border border-default hover:bg-hover text-secondary transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-sm rounded bg-red-600 hover:bg-red-700 text-white transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessionsPanelProps) {
   const [branches, setBranches] = useState<AgentBranchInfo[]>([])
   const [expandedBranch, setExpandedBranch] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionInProgress, setActionInProgress] = useState<string | null>(null)
-  const [diffData, setDiffData] = useState<{ branch: string; files: FileDiff[] } | null>(null)
+  const [diffData, setDiffData] = useState<{ branch: string; files: FileDiff[]; error?: string } | null>(null)
   const [pushSuccess, setPushSuccess] = useState<string | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
   const { selectFile } = useWorkspaceStore()
 
@@ -152,13 +189,27 @@ export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessi
     setActionInProgress(null)
   }
 
-  const handleDelete = async (branchName: string) => {
+  const handleDeleteClick = (branchName: string) => {
+    // Show confirmation dialog
+    setDeleteConfirm(branchName)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return
+
+    const branchName = deleteConfirm
+    setDeleteConfirm(null)
     setActionInProgress(branchName)
+
     const result = await window.api.git.deleteBranch(workspacePath, branchName, true)
     if (result.success) {
       await loadBranches()
     }
     setActionInProgress(null)
+  }
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirm(null)
   }
 
   const handlePush = async (branchName: string) => {
@@ -183,7 +234,11 @@ export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessi
 
     // Detect which default branch exists (main or master)
     const branchesResult = await window.api.git.listBranches(workspacePath)
+    console.log('[AgentSessionsPanel] Listing branches:', branchesResult)
+
     if (!branchesResult.success || !branchesResult.data) {
+      console.error('[AgentSessionsPanel] Failed to list branches:', branchesResult.error)
+      setDiffData({ branch: branchName, files: [], error: 'Failed to list branches' })
       setActionInProgress(null)
       return
     }
@@ -196,14 +251,21 @@ export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessi
       defaultBranch = 'master'
     }
 
+    console.log('[AgentSessionsPanel] Comparing', defaultBranch, 'with', branchName)
+
     // Get diff between default branch and the agent branch
     const result = await window.api.git.getDiffBetweenBranches(
       workspacePath,
       defaultBranch,
       branchName
     )
+    console.log('[AgentSessionsPanel] Diff result:', result)
+
     if (result.success && result.data) {
       setDiffData({ branch: branchName, files: result.data })
+    } else {
+      console.error('[AgentSessionsPanel] Diff failed:', result.error)
+      setDiffData({ branch: branchName, files: [], error: result.error || 'Failed to get diff' })
     }
     setActionInProgress(null)
   }
@@ -331,7 +393,7 @@ export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessi
                   </button>
                   {!branch.isCurrent && (
                     <button
-                      onClick={() => handleDelete(branch.name)}
+                      onClick={() => handleDeleteClick(branch.name)}
                       disabled={actionInProgress === branch.name}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-hover hover:bg-red-500/20 text-secondary hover:text-red-400 transition-colors disabled:opacity-50"
                     >
@@ -344,6 +406,12 @@ export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessi
                   <p className="text-xs text-muted mt-2">
                     Currently checked out. Switch branches to enable checkout/delete.
                   </p>
+                )}
+                {/* Loading indicator for diff */}
+                {actionInProgress === branch.name && diffData?.branch !== branch.name && (
+                  <div className="mt-3 border-t border-default pt-3">
+                    <p className="text-xs text-muted animate-pulse">Loading changes...</p>
+                  </div>
                 )}
                 {/* Diff display */}
                 {diffData?.branch === branch.name && diffData.files.length > 0 && (
@@ -384,7 +452,11 @@ export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessi
                 )}
                 {diffData?.branch === branch.name && diffData.files.length === 0 && (
                   <div className="mt-3 border-t border-default pt-3">
-                    <p className="text-xs text-muted">No uncommitted changes</p>
+                    {diffData.error ? (
+                      <p className="text-xs text-red-400">Error: {diffData.error}</p>
+                    ) : (
+                      <p className="text-xs text-muted">No differences from main/master branch</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -392,6 +464,15 @@ export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessi
           </div>
         ))}
       </div>
+
+      {/* Delete confirmation dialog */}
+      {deleteConfirm && (
+        <DeleteConfirmDialog
+          branchName={deleteConfirm}
+          onConfirm={handleDeleteConfirm}
+          onCancel={handleDeleteCancel}
+        />
+      )}
     </div>
   )
 }

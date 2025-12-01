@@ -3,6 +3,8 @@ import { create } from 'zustand'
 interface FileTreeStore {
   // State - track which paths are expanded
   expandedPaths: Set<string>
+  // Refresh counter - increment to trigger file tree refresh
+  refreshVersion: number
 
   // Actions
   toggleExpanded: (path: string) => void
@@ -10,10 +12,12 @@ interface FileTreeStore {
   collapsePath: (path: string) => void
   collapseAll: () => void
   isExpanded: (path: string) => boolean
+  triggerRefresh: () => void
 }
 
 export const useFileTreeStore = create<FileTreeStore>((set, get) => ({
   expandedPaths: new Set<string>(),
+  refreshVersion: 0,
 
   toggleExpanded: (path: string) => {
     const { expandedPaths } = get()
@@ -50,5 +54,9 @@ export const useFileTreeStore = create<FileTreeStore>((set, get) => ({
 
   isExpanded: (path: string) => {
     return get().expandedPaths.has(path)
+  },
+
+  triggerRefresh: () => {
+    set((state) => ({ refreshVersion: state.refreshVersion + 1 }))
   }
 }))

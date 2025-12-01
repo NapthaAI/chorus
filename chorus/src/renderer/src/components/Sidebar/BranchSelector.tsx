@@ -48,6 +48,17 @@ const LoadingSpinner = () => (
   </svg>
 )
 
+const TrashIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M6.5 1.75a.25.25 0 01.25-.25h2.5a.25.25 0 01.25.25V3h-3V1.75zm4.5 0V3h2.25a.75.75 0 010 1.5H2.75a.75.75 0 010-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75zM4.496 6.675a.75.75 0 10-1.492.15l.66 6.6A1.75 1.75 0 005.405 15h5.19c.9 0 1.652-.681 1.741-1.576l.66-6.6a.75.75 0 00-1.492-.149l-.66 6.6a.25.25 0 01-.249.225h-5.19a.25.25 0 01-.249-.225l-.66-6.6z" />
+  </svg>
+)
+
+// Delete confirmation state
+interface DeleteConfirmState {
+  branchName: string
+}
+
 export function BranchSelector({ currentBranch, workspacePath, onBranchChange }: BranchSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [branches, setBranches] = useState<GitBranch[]>([])
@@ -55,6 +66,8 @@ export function BranchSelector({ currentBranch, workspacePath, onBranchChange }:
   const [isCheckingOut, setIsCheckingOut] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 })
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
@@ -138,6 +151,34 @@ export function BranchSelector({ currentBranch, workspacePath, onBranchChange }:
     }
   }
 
+  // Handle delete button click
+  const handleDeleteClick = (e: React.MouseEvent, branchName: string) => {
+    e.stopPropagation()
+    setDeleteConfirm({ branchName })
+  }
+
+  // Handle delete confirmation
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return
+
+    setIsDeleting(true)
+    try {
+      const result = await window.api.git.deleteBranch(workspacePath, deleteConfirm.branchName, true)
+      if (result.success) {
+        // Reload branches
+        await loadBranches()
+      } else {
+        setError(result.error || 'Failed to delete branch')
+      }
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setIsDeleting(false)
+      setDeleteConfirm(null)
+    }
+  }
+
+
   // Separate local and remote branches
   const localBranches = branches.filter(b => !b.isRemote)
   const remoteBranches = branches.filter(b => b.isRemote)
@@ -188,24 +229,38 @@ export function BranchSelector({ currentBranch, workspacePath, onBranchChange }:
                     Local
                   </div>
                   {localBranches.map((branch) => (
-                    <button
+                    <div
                       key={branch.name}
-                      onClick={() => handleSelectBranch(branch)}
-                      disabled={isCheckingOut}
                       className={`
-                        w-full px-3 py-1.5 text-left text-sm flex items-center gap-2
+                        flex items-center group
                         ${branch.isCurrent
                           ? 'text-primary bg-selected'
                           : 'text-secondary hover:bg-hover hover:text-primary'
                         }
-                        disabled:opacity-50
                       `}
                     >
-                      <span className="w-4 flex-shrink-0">
-                        {branch.isCurrent && <CheckIcon />}
-                      </span>
-                      <span className="truncate">{branch.name}</span>
-                    </button>
+                      <button
+                        onClick={() => handleSelectBranch(branch)}
+                        disabled={isCheckingOut || isDeleting}
+                        className="flex-1 px-3 py-1.5 text-left text-sm flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <span className="w-4 flex-shrink-0">
+                          {branch.isCurrent && <CheckIcon />}
+                        </span>
+                        <span className="truncate">{branch.name}</span>
+                      </button>
+                      {/* Delete button - only for non-current branches */}
+                      {!branch.isCurrent && (
+                        <button
+                          onClick={(e) => handleDeleteClick(e, branch.name)}
+                          disabled={isCheckingOut || isDeleting}
+                          className="p-1.5 mr-1 text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                          title="Delete branch"
+                        >
+                          <TrashIcon />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -235,6 +290,38 @@ export function BranchSelector({ currentBranch, workspacePath, onBranchChange }:
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog - VS Code style */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-start justify-center pt-[15%] z-[100]">
+          <div className="bg-surface border border-default rounded shadow-lg w-[400px]">
+            <div className="p-4">
+              <p className="text-primary text-sm">
+                Delete branch <span className="font-mono text-secondary">{deleteConfirm.branchName}</span>?
+              </p>
+            </div>
+            <div className="px-4 pb-3 flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="px-3 py-1.5 text-sm rounded border border-default hover:bg-hover text-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+                className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                  isDeleting
+                    ? 'bg-red-600/50 text-white/50 cursor-not-allowed'
+                    : 'bg-red-600 hover:bg-red-700 text-white'
+                }`}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

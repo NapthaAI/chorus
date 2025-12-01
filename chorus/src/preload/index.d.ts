@@ -473,6 +473,11 @@ interface FileSystemAPI {
   readFile: (path: string) => Promise<ApiResult<string>>
   writeFile: (path: string, content: string) => Promise<ApiResult>
   walkDirectory: (path: string, maxDepth?: number) => Promise<ApiResult<WalkEntry[]>>
+  delete: (path: string) => Promise<ApiResult>
+  rename: (oldPath: string, newPath: string) => Promise<ApiResult>
+  createFile: (path: string, content?: string) => Promise<ApiResult>
+  createDirectory: (path: string) => Promise<ApiResult>
+  exists: (path: string) => Promise<ApiResult<boolean>>
 }
 
 interface DialogAPI {
@@ -502,6 +507,11 @@ interface GitAPI {
   stash: (path: string, message?: string) => Promise<ApiResult>
   stashPop: (path: string) => Promise<ApiResult>
   push: (path: string, branchName?: string, options?: { setUpstream?: boolean; force?: boolean }) => Promise<ApiResult>
+
+  // File-level git operations (like GitLens)
+  discardChanges: (repoPath: string, filePath: string) => Promise<ApiResult>
+  stageFile: (repoPath: string, filePath: string) => Promise<ApiResult>
+  unstageFile: (repoPath: string, filePath: string) => Promise<ApiResult>
 
   // Clone progress events
   onCloneProgress: (callback: (progress: CloneProgress) => void) => () => void

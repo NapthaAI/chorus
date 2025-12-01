@@ -102,7 +102,12 @@ const api = {
     listDirectory: (path: string) => ipcRenderer.invoke('fs:list-directory', path),
     readFile: (path: string) => ipcRenderer.invoke('fs:read-file', path),
     writeFile: (path: string, content: string) => ipcRenderer.invoke('fs:write-file', path, content),
-    walkDirectory: (path: string, maxDepth?: number) => ipcRenderer.invoke('fs:walk-directory', path, maxDepth)
+    walkDirectory: (path: string, maxDepth?: number) => ipcRenderer.invoke('fs:walk-directory', path, maxDepth),
+    delete: (path: string) => ipcRenderer.invoke('fs:delete', path),
+    rename: (oldPath: string, newPath: string) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
+    createFile: (path: string, content?: string) => ipcRenderer.invoke('fs:create-file', path, content),
+    createDirectory: (path: string) => ipcRenderer.invoke('fs:create-directory', path),
+    exists: (path: string) => ipcRenderer.invoke('fs:exists', path)
   },
 
   // Dialog operations
@@ -145,6 +150,14 @@ const api = {
       ipcRenderer.invoke('git:stash-pop', path),
     push: (path: string, branchName?: string, options?: { setUpstream?: boolean; force?: boolean }) =>
       ipcRenderer.invoke('git:push', path, branchName, options),
+
+    // File-level git operations (like GitLens)
+    discardChanges: (repoPath: string, filePath: string) =>
+      ipcRenderer.invoke('git:discard-changes', repoPath, filePath),
+    stageFile: (repoPath: string, filePath: string) =>
+      ipcRenderer.invoke('git:stage-file', repoPath, filePath),
+    unstageFile: (repoPath: string, filePath: string) =>
+      ipcRenderer.invoke('git:unstage-file', repoPath, filePath),
 
     // Clone progress events
     onCloneProgress: (callback: (progress: CloneProgress) => void) => {

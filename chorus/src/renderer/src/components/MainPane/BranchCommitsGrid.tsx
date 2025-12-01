@@ -4,6 +4,7 @@ import type { GitBranch, GitCommit } from '../../types'
 interface BranchCommitsGridProps {
   workspacePath: string
   onBranchChange: () => void
+  localOnly?: boolean
 }
 
 // SVG Icons
@@ -180,7 +181,7 @@ function BranchColumn({ branch, commits, isLoading, isCheckingOut, onCheckout }:
   )
 }
 
-export function BranchCommitsGrid({ workspacePath, onBranchChange }: BranchCommitsGridProps) {
+export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = false }: BranchCommitsGridProps) {
   const [branches, setBranches] = useState<GitBranch[]>([])
   const [branchCommits, setBranchCommits] = useState<Map<string, GitCommit[]>>(new Map())
   const [loadingBranches, setLoadingBranches] = useState<Set<string>>(new Set())
@@ -192,6 +193,16 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange }: BranchCommi
   // Sort branches: current first, then local, then remote (excluding duplicates)
   const sortedBranches = useCallback(() => {
     const localBranches = branches.filter(b => !b.isRemote)
+
+    // If localOnly mode, only return local branches
+    if (localOnly) {
+      return localBranches.sort((a, b) => {
+        if (a.isCurrent) return -1
+        if (b.isCurrent) return 1
+        return a.name.localeCompare(b.name)
+      })
+    }
+
     const remoteBranches = branches.filter(b => b.isRemote)
 
     // Filter out remote branches that have local equivalents
@@ -208,7 +219,7 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange }: BranchCommi
       if (a.isRemote !== b.isRemote) return a.isRemote ? 1 : -1
       return a.name.localeCompare(b.name)
     })
-  }, [branches])
+  }, [branches, localOnly])
 
   const allBranches = sortedBranches()
   const totalPages = Math.ceil(allBranches.length / BRANCHES_PER_PAGE)
@@ -345,7 +356,7 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange }: BranchCommi
       {/* Header with navigation */}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-secondary uppercase tracking-wider">
-          Branches
+          {localOnly ? 'Local Branches' : 'Branches'}
         </h2>
         {totalPages > 1 && (
           <div className="flex items-center gap-2">

@@ -585,3 +585,41 @@ export function getCurrentBranchSync(path: string): string | null {
     return null
   }
 }
+
+/**
+ * Discard changes to a file (restore to last commit)
+ * Works for modified files, deleted files, and untracked files
+ */
+export async function discardChanges(repoPath: string, filePath: string): Promise<void> {
+  // Get file status first
+  const status = await getStatus(repoPath)
+  const fileChange = status.changes.find(c => c.file === filePath)
+
+  if (!fileChange) {
+    throw new Error(`No changes found for ${filePath}`)
+  }
+
+  if (fileChange.status === '??' || fileChange.status === 'A') {
+    // Untracked or newly added file - just delete it
+    const { unlinkSync } = await import('fs')
+    const { join } = await import('path')
+    unlinkSync(join(repoPath, filePath))
+  } else {
+    // Modified or deleted file - restore from HEAD
+    runGit(repoPath, `checkout HEAD -- "${filePath}"`)
+  }
+}
+
+/**
+ * Unstage a file (remove from staging area)
+ */
+export async function unstageFile(repoPath: string, filePath: string): Promise<void> {
+  runGit(repoPath, `reset HEAD -- "${filePath}"`)
+}
+
+/**
+ * Stage a specific file
+ */
+export async function stageFile(repoPath: string, filePath: string): Promise<void> {
+  runGit(repoPath, `add "${filePath}"`)
+}

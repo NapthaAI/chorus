@@ -1,4 +1,5 @@
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { useFileTreeStore } from '../../stores/file-tree-store'
 import { FileTree } from '../Sidebar/FileTree'
 
 // SVG Icons
@@ -28,11 +29,13 @@ function EmptyState({ message }: { message: string }) {
 export function FilesSection() {
   const { workspaces, selectedWorkspaceId, selectFile, selectedFilePath, loadWorkspaces } =
     useWorkspaceStore()
+  const triggerFileTreeRefresh = useFileTreeStore((state) => state.triggerRefresh)
 
   const selectedWorkspace = workspaces.find((ws) => ws.id === selectedWorkspaceId)
 
   const handleRefresh = () => {
     loadWorkspaces()
+    triggerFileTreeRefresh()
   }
 
   if (!selectedWorkspace) {

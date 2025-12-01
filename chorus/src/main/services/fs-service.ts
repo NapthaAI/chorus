@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, writeFileSync, statSync } from 'fs'
-import { join } from 'path'
+import { readdirSync, readFileSync, writeFileSync, statSync, unlinkSync, rmdirSync, renameSync, mkdirSync, existsSync } from 'fs'
+import { join, dirname } from 'path'
 
 export interface DirectoryEntry {
   name: string
@@ -172,4 +172,49 @@ export async function walkDirectory(
   })
 
   return entries
+}
+
+/**
+ * Delete a file or directory (recursive)
+ */
+export async function deleteFile(filePath: string): Promise<void> {
+  const stats = statSync(filePath)
+  if (stats.isDirectory()) {
+    rmdirSync(filePath, { recursive: true })
+  } else {
+    unlinkSync(filePath)
+  }
+}
+
+/**
+ * Rename/move a file or directory
+ */
+export async function renameFile(oldPath: string, newPath: string): Promise<void> {
+  renameSync(oldPath, newPath)
+}
+
+/**
+ * Create a new file with optional content
+ */
+export async function createFile(filePath: string, content: string = ''): Promise<void> {
+  // Create parent directory if it doesn't exist
+  const dir = dirname(filePath)
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  writeFileSync(filePath, content, 'utf-8')
+}
+
+/**
+ * Create a new directory
+ */
+export async function createDirectory(dirPath: string): Promise<void> {
+  mkdirSync(dirPath, { recursive: true })
+}
+
+/**
+ * Check if path exists
+ */
+export async function pathExists(filePath: string): Promise<boolean> {
+  return existsSync(filePath)
 }

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { DirectoryEntry } from '../../types'
+import { useFileTreeStore } from '../../stores/file-tree-store'
 
 // ============================================
 // TYPES
@@ -502,6 +503,22 @@ function ContextMenu({ state, onClose, onNewFile, onNewFolder, onRename, onDelet
 // MAIN FILE TREE COMPONENT
 // ============================================
 
+// Input dialog state
+interface InputDialogState {
+  isOpen: boolean
+  type: 'rename' | 'newFile' | 'newFolder'
+  initialValue: string
+  targetPath: string  // For rename: the file path; for new: the parent directory
+}
+
+// Delete confirmation state
+interface DeleteConfirmState {
+  isOpen: boolean
+  path: string
+  name: string
+  isDirectory: boolean
+}
+
 export function FileTree({ rootPath, onFileSelect, selectedPath }: FileTreeProps) {
   const [rootNodes, setRootNodes] = useState<FileTreeNode[]>([])
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
@@ -512,6 +529,22 @@ export function FileTree({ rootPath, onFileSelect, selectedPath }: FileTreeProps
     y: 0,
     node: null
   })
+
+  // Get refresh trigger from store
+  const refreshVersion = useFileTreeStore((state) => state.refreshVersion)
+  const triggerRefresh = useFileTreeStore((state) => state.triggerRefresh)
+
+  // Input dialog state
+  const [inputDialog, setInputDialog] = useState<InputDialogState>({
+    isOpen: false,
+    type: 'newFile',
+    initialValue: '',
+    targetPath: ''
+  })
+  const [inputValue, setInputValue] = useState('')
+
+  // Delete confirmation state
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(null)
 
   // Load directory contents
   const loadDirectory = useCallback(async (path: string): Promise<FileTreeNode[]> => {
@@ -532,14 +565,15 @@ export function FileTree({ rootPath, onFileSelect, selectedPath }: FileTreeProps
     return []
   }, [])
 
-  // Load root directory
+  // Load root directory (also refreshes when refreshVersion changes)
   useEffect(() => {
     setIsLoading(true)
+    setExpandedPaths(new Set()) // Collapse all on refresh
     loadDirectory(rootPath).then((nodes) => {
       setRootNodes(nodes)
       setIsLoading(false)
     })
-  }, [rootPath, loadDirectory])
+  }, [rootPath, loadDirectory, refreshVersion])
 
   // Toggle folder expanded state
   const handleToggle = (path: string) => {
@@ -575,26 +609,108 @@ export function FileTree({ rootPath, onFileSelect, selectedPath }: FileTreeProps
     setContextMenu((prev) => ({ ...prev, isOpen: false }))
   }
 
-  // Context menu actions (placeholders for now)
+  // Context menu actions
   const handleNewFile = () => {
+    if (!contextMenu.node) return
+    const targetDir = contextMenu.node.isDirectory ? contextMenu.node.path : contextMenu.node.path.substring(0, contextMenu.node.path.lastIndexOf('/'))
+    setInputDialog({
+      isOpen: true,
+      type: 'newFile',
+      initialValue: '',
+      targetPath: targetDir
+    })
+    setInputValue('')
     closeContextMenu()
-    // TODO: Implement new file creation
   }
 
   const handleNewFolder = () => {
+    if (!contextMenu.node) return
+    const targetDir = contextMenu.node.isDirectory ? contextMenu.node.path : contextMenu.node.path.substring(0, contextMenu.node.path.lastIndexOf('/'))
+    setInputDialog({
+      isOpen: true,
+      type: 'newFolder',
+      initialValue: '',
+      targetPath: targetDir
+    })
+    setInputValue('')
     closeContextMenu()
-    // TODO: Implement new folder creation
   }
 
   const handleRename = () => {
+    if (!contextMenu.node) return
+    setInputDialog({
+      isOpen: true,
+      type: 'rename',
+      initialValue: contextMenu.node.name,
+      targetPath: contextMenu.node.path
+    })
+    setInputValue(contextMenu.node.name)
     closeContextMenu()
-    // TODO: Implement rename
   }
 
   const handleDelete = () => {
+    if (!contextMenu.node) return
+    setDeleteConfirm({
+      isOpen: true,
+      path: contextMenu.node.path,
+      name: contextMenu.node.name,
+      isDirectory: contextMenu.node.isDirectory
+    })
     closeContextMenu()
-    // TODO: Implement delete
   }
+
+  // Handle input dialog submit
+  const handleInputSubmit = async () => {
+    if (!inputValue.trim()) return
+
+    const { type, targetPath } = inputDialog
+
+    try {
+      let success = false
+      if (type === 'rename') {
+        const parentDir = targetPath.substring(0, targetPath.lastIndexOf('/'))
+        const newPath = `${parentDir}/${inputValue}`
+        const result = await window.api.fs.rename(targetPath, newPath)
+        success = result.success
+      } else if (type === 'newFile') {
+        const newPath = `${targetPath}/${inputValue}`
+        const result = await window.api.fs.createFile(newPath)
+        success = result.success
+      } else if (type === 'newFolder') {
+        const newPath = `${targetPath}/${inputValue}`
+        const result = await window.api.fs.createDirectory(newPath)
+        success = result.success
+      }
+
+      if (success) {
+        triggerRefresh() // Reload entire tree
+      }
+    } catch (error) {
+      console.error('File operation failed:', error)
+    }
+
+    setInputDialog({ ...inputDialog, isOpen: false })
+    setInputValue('')
+  }
+
+  // Handle delete confirmation
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return
+
+    try {
+      const result = await window.api.fs.delete(deleteConfirm.path)
+      if (result.success) {
+        triggerRefresh() // Reload entire tree
+      } else {
+        console.error('Delete failed:', result.error)
+      }
+    } catch (error) {
+      console.error('Delete failed:', error)
+    }
+
+    setDeleteConfirm(null)
+  }
+
 
   const handleCopyPath = async () => {
     if (contextMenu.node) {
@@ -603,24 +719,8 @@ export function FileTree({ rootPath, onFileSelect, selectedPath }: FileTreeProps
     closeContextMenu()
   }
 
-  const handleRefresh = async () => {
-    if (contextMenu.node?.isDirectory) {
-      // Force re-render by toggling expanded state (collapses and re-expands)
-      // This will trigger the TreeNode to reload its children
-      setExpandedPaths((prev) => {
-        const next = new Set(prev)
-        next.delete(contextMenu.node!.path)
-        return next
-      })
-      // Re-expand after a short delay
-      setTimeout(() => {
-        setExpandedPaths((prev) => {
-          const next = new Set(prev)
-          next.add(contextMenu.node!.path)
-          return next
-        })
-      }, 50)
-    }
+  const handleRefresh = () => {
+    triggerRefresh()
     closeContextMenu()
   }
 
@@ -658,6 +758,76 @@ export function FileTree({ rootPath, onFileSelect, selectedPath }: FileTreeProps
         onCopyPath={handleCopyPath}
         onRefresh={handleRefresh}
       />
+
+      {/* Input Dialog for New File/Folder/Rename - VS Code style */}
+      {inputDialog.isOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-start justify-center pt-[15%] z-50">
+          <div className="bg-surface border border-default rounded shadow-lg w-[400px]">
+            <div className="p-4 space-y-3">
+              <p className="text-primary text-sm">
+                {inputDialog.type === 'rename' ? 'Enter new name' :
+                 inputDialog.type === 'newFile' ? 'Enter file name' : 'Enter folder name'}
+              </p>
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleInputSubmit()
+                  if (e.key === 'Escape') setInputDialog({ ...inputDialog, isOpen: false })
+                }}
+                placeholder={inputDialog.type === 'rename' ? inputDialog.initialValue :
+                            inputDialog.type === 'newFile' ? 'filename.txt' : 'folder-name'}
+                className="w-full px-3 py-2 bg-input border border-default rounded text-primary placeholder-muted text-sm focus:outline-none focus:border-accent"
+                autoFocus
+              />
+            </div>
+            <div className="px-4 pb-3 flex justify-end gap-2">
+              <button
+                onClick={() => setInputDialog({ ...inputDialog, isOpen: false })}
+                className="px-3 py-1.5 text-sm rounded border border-default hover:bg-hover text-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleInputSubmit}
+                disabled={!inputValue.trim()}
+                className="px-3 py-1.5 text-sm rounded bg-accent hover:bg-accent/80 text-white transition-colors disabled:opacity-50"
+              >
+                {inputDialog.type === 'rename' ? 'Rename' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog - VS Code style */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-start justify-center pt-[15%] z-50">
+          <div className="bg-surface border border-default rounded shadow-lg w-[400px]">
+            <div className="p-4">
+              <p className="text-primary text-sm">
+                Delete {deleteConfirm.isDirectory ? 'folder' : 'file'} <span className="font-mono text-secondary">{deleteConfirm.name}</span>?
+                {deleteConfirm.isDirectory && <span className="text-muted"> (and all contents)</span>}
+              </p>
+            </div>
+            <div className="px-4 pb-3 flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="px-3 py-1.5 text-sm rounded border border-default hover:bg-hover text-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                className="px-3 py-1.5 text-sm rounded bg-red-600 hover:bg-red-700 text-white transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

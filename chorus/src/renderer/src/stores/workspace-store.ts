@@ -23,6 +23,9 @@ interface WorkspaceStore {
   tabs: Tab[]
   activeTabId: string | null
 
+  // Recently viewed files for @ mention suggestions (per workspace)
+  recentlyViewedFiles: Map<string, string[]>  // workspaceId -> file paths
+
   // Slash commands state (per-workspace)
   workspaceCommands: Map<string, SlashCommand[]>
 
@@ -69,6 +72,10 @@ interface WorkspaceStore {
   refreshCommands: (workspaceId: string) => Promise<void>
   getCommands: (workspaceId: string) => SlashCommand[]
 
+  // Recently viewed files actions (for @ mention suggestions)
+  trackFileView: (workspaceId: string, filePath: string) => void
+  getRecentlyViewedFiles: (workspaceId: string) => string[]
+
   // Split pane actions
   toggleSplitPane: () => void
   setSplitPaneRatio: (ratio: number) => void
@@ -98,6 +105,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   error: null,
   tabs: [],
   activeTabId: null,
+  recentlyViewedFiles: new Map(),
   workspaceCommands: new Map(),
   cloneProgress: null,
   // Split pane defaults
@@ -333,7 +341,12 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       return
     }
 
-    const { tabs, openTab, selectedWorkspaceId, splitPaneEnabled, firstPaneGroup, secondPaneGroup } = get()
+    const { tabs, openTab, selectedWorkspaceId, splitPaneEnabled, firstPaneGroup, secondPaneGroup, trackFileView } = get()
+
+    // Track this file view for @ mention suggestions
+    if (selectedWorkspaceId) {
+      trackFileView(selectedWorkspaceId, filePath)
+    }
     const filename = filePath.split('/').pop() || 'File'
 
     // Check if tab already exists
@@ -661,6 +674,24 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   getCommands: (workspaceId: string) => {
     return get().workspaceCommands.get(workspaceId) || []
+  },
+
+  // Track file view for @ mention suggestions
+  trackFileView: (workspaceId: string, filePath: string) => {
+    const { recentlyViewedFiles } = get()
+    const current = recentlyViewedFiles.get(workspaceId) || []
+
+    // Move to front, remove duplicates, limit to 10
+    const updated = [filePath, ...current.filter(p => p !== filePath)].slice(0, 10)
+
+    const newMap = new Map(recentlyViewedFiles)
+    newMap.set(workspaceId, updated)
+    set({ recentlyViewedFiles: newMap })
+  },
+
+  // Get recently viewed files for a workspace
+  getRecentlyViewedFiles: (workspaceId: string) => {
+    return get().recentlyViewedFiles.get(workspaceId) || []
   },
 
   // Split pane actions

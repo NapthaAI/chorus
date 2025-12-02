@@ -181,6 +181,9 @@ const api = {
     pullRebase: (path: string) => ipcRenderer.invoke('git:pull-rebase', path),
     fetch: (path: string) => ipcRenderer.invoke('git:fetch', path),
 
+    // Get changed files for @ mention suggestions
+    getChangedFiles: (path: string) => ipcRenderer.invoke('git:get-changed-files', path),
+
     // Clone progress events
     onCloneProgress: (callback: (progress: CloneProgress) => void) => {
       const handler = (_event: unknown, progress: CloneProgress) => callback(progress)

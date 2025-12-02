@@ -660,6 +660,20 @@ app.whenReady().then(() => {
     }
   })
 
+  // Get changed files for @ mention suggestions
+  ipcMain.handle('git:get-changed-files', async (_event, repoPath: string) => {
+    try {
+      const status = await getStatus(repoPath)
+      const changedFiles = status.changes.map((change) => ({
+        path: change.file,
+        status: change.status as 'M' | 'A' | 'D' | '?'
+      }))
+      return { success: true, data: changedFiles }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
   // Remote sync operations
   ipcMain.handle('git:sync-status', async (_event, path: string) => {
     try {

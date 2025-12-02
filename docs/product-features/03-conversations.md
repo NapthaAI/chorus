@@ -116,10 +116,47 @@ Enhanced message input capabilities.
 
 **How it works:**
 1. User types `@`
-2. Dropdown appears with file list
-3. Typing filters results (fuzzy search)
+2. Dropdown appears with root-level files and folders
+3. Typing filters results via fuzzy search
 4. Selection inserts `@path/to/file`
 5. Claude Code processes @ references natively
+
+**Smart Suggestions:**
+The dropdown shows files in prioritized sections:
+- **Changed** - Git modified/added/deleted files with status badges (M/A/D)
+- **Recent** - Recently viewed files in this workspace
+- **All Files** - Root-level items and fuzzy search results
+
+**Multi-File Selection:**
+Select multiple files before inserting:
+- `Shift+Enter` - Add file to selection (dropdown stays open)
+- Selected files appear as removable chips above textarea
+- `Enter` - Insert all selected files at once
+- `Escape` - Clear selection and close
+
+**Filter Prefixes:**
+Type filter prefixes to narrow results:
+- `@ts:` - TypeScript files (.ts, .tsx)
+- `@js:` - JavaScript files (.js, .jsx)
+- `@test:` - Test files (.test., .spec.)
+- `@src/` - Path-based filter
+
+**Directory Navigation:**
+Browse folders inline:
+- `→` (Right Arrow) - Expand folder to show children
+- `←` (Left Arrow) - Collapse folder
+- `Enter` on collapsed folder - Expand it
+- `Shift+Enter` on folder - Select all files in folder
+
+**Keyboard Shortcuts:**
+| Key | Action |
+|-----|--------|
+| `↑/↓` | Navigate items |
+| `→` | Expand folder |
+| `←` | Collapse folder |
+| `Enter` | Select or expand |
+| `Shift+Enter` | Multi-select |
+| `Escape` | Close |
 
 #### / Slash Commands ✅
 - Type `/` to trigger command autocomplete
@@ -317,7 +354,8 @@ interface Message {
 | `MermaidDiagram` | Chat | Diagram renderer |
 | `ToolCallsGroup` | Chat | Collapsed tool calls |
 | `MessageInput` | Chat | Text input with @/command support |
-| `MentionDropdown` | Chat | @ file autocomplete |
+| `MentionDropdown` | Chat | @ file autocomplete with sections |
+| `SelectionChips` | Chat | Selected files chips |
 | `SlashCommandDropdown` | Chat | / command autocomplete |
 | `ConversationDetails` | RightPanel | Files, todos, tools, metrics |
 | `PermissionDialog` | Dialog | Tool approval prompt |
@@ -361,7 +399,13 @@ interface Message {
 
 **Store:**
 - `src/renderer/src/stores/chat-store.ts` - Conversation state
-- `src/renderer/src/stores/workspace-store.ts` - Commands
+- `src/renderer/src/stores/workspace-store.ts` - Commands, recently viewed files
+
+**Hooks:**
+- `src/renderer/src/hooks/useFileSearch.ts` - File search with getChildren
+- `src/renderer/src/hooks/useMentionTrigger.ts` - @ detection, filter parsing
+- `src/renderer/src/hooks/useSmartSuggestions.ts` - Changed/recent files
+- `src/renderer/src/hooks/useSlashCommandTrigger.ts` - / detection
 
 **Components:**
 - `src/renderer/src/components/Chat/` - All chat components

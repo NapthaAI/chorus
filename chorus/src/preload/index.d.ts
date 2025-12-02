@@ -345,6 +345,12 @@ export interface BranchSyncStatus {
   branch: string
 }
 
+// Changed file from git status (for @ mention suggestions)
+interface ChangedFile {
+  path: string
+  status: 'M' | 'A' | 'D' | '?'  // Modified, Added, Deleted, Untracked
+}
+
 interface GitCommit {
   hash: string
   message: string
@@ -549,6 +555,9 @@ interface GitAPI {
   pull: (path: string) => Promise<ApiResult>
   pullRebase: (path: string) => Promise<ApiResult>
   fetch: (path: string) => Promise<ApiResult>
+
+  // Get changed files for @ mention suggestions
+  getChangedFiles: (path: string) => Promise<ApiResult<ChangedFile[]>>
 
   // Clone progress events
   onCloneProgress: (callback: (progress: CloneProgress) => void) => () => void

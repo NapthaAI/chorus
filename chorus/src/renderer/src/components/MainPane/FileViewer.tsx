@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Highlight, themes } from 'prism-react-renderer'
 import { MarkdownContent } from '../Chat/MarkdownContent'
+import { CodeEditor, getLanguageFromExtension } from '../Editor'
 
 interface FileViewerProps {
   filePath: string
@@ -189,14 +189,14 @@ export function FileViewer({ filePath }: FileViewerProps) {
       </div>
 
       {/* File content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-hidden">
         {isMarkdown && mode === 'raw' ? (
-          // Raw editing mode for markdown
-          <textarea
-            value={editedContent ?? content ?? ''}
-            onChange={(e) => setEditedContent(e.target.value)}
-            className="w-full h-full p-4 font-mono text-sm bg-transparent text-primary resize-none focus:outline-none"
-            spellCheck={false}
+          // Raw editing mode for markdown with CodeMirror
+          <CodeEditor
+            content={editedContent ?? content ?? ''}
+            language="markdown"
+            onChange={setEditedContent}
+            onSave={handleSave}
           />
         ) : isMarkdown && mode === 'preview' ? (
           // Preview mode for markdown

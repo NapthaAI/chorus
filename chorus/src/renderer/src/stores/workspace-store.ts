@@ -45,6 +45,9 @@ interface WorkspaceStore {
   secondPaneGroup: TabGroup   // Tab group for second pane
   activePaneId: 'first' | 'second'  // Which pane is focused
 
+  // Unsaved files tracking (for tab indicators)
+  unsavedFiles: Set<string>  // Set of file paths with unsaved changes
+
   // Actions
   loadWorkspaces: () => Promise<void>
   loadSettings: () => Promise<void>
@@ -86,6 +89,11 @@ interface WorkspaceStore {
   closeTabInPane: (paneId: 'first' | 'second', tabId: string) => void
   setActivePane: (paneId: 'first' | 'second') => void
   saveSplitPaneSettings: () => Promise<void>
+
+  // Unsaved files actions
+  markFileUnsaved: (filePath: string) => void
+  markFileSaved: (filePath: string) => void
+  isFileUnsaved: (filePath: string) => boolean
 }
 
 // Generate UUID for tabs
@@ -115,6 +123,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   firstPaneGroup: createEmptyTabGroup('first'),
   secondPaneGroup: createEmptyTabGroup('second'),
   activePaneId: 'first',
+
+  // Unsaved files tracking
+  unsavedFiles: new Set<string>(),
 
   // Load all workspaces
   loadWorkspaces: async () => {
@@ -886,5 +897,28 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     } catch {
       // Silently fail
     }
+  },
+
+  // Unsaved files actions
+  markFileUnsaved: (filePath: string) => {
+    const { unsavedFiles } = get()
+    if (!unsavedFiles.has(filePath)) {
+      const newSet = new Set(unsavedFiles)
+      newSet.add(filePath)
+      set({ unsavedFiles: newSet })
+    }
+  },
+
+  markFileSaved: (filePath: string) => {
+    const { unsavedFiles } = get()
+    if (unsavedFiles.has(filePath)) {
+      const newSet = new Set(unsavedFiles)
+      newSet.delete(filePath)
+      set({ unsavedFiles: newSet })
+    }
+  },
+
+  isFileUnsaved: (filePath: string) => {
+    return get().unsavedFiles.has(filePath)
   }
 }))

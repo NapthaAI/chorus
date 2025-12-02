@@ -1,6 +1,10 @@
-import { useState, memo } from 'react'
-import { Highlight, themes } from 'prism-react-renderer'
+import { useState, memo, useMemo } from 'react'
+import CodeMirror from '@uiw/react-codemirror'
+import { vscodeDark } from '@uiw/codemirror-theme-vscode'
+import { EditorView } from '@codemirror/view'
+import { EditorState } from '@codemirror/state'
 import { MermaidDiagram } from './MermaidDiagram'
+import { getLanguageExtension } from '../Editor/languageSupport'
 
 interface CodeBlockProps {
   code: string
@@ -35,8 +39,25 @@ export const CodeBlock = memo(function CodeBlock({ code, language }: CodeBlockPr
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // Normalize language for prism
+  // Normalize language
   const normalizedLanguage = normalizeLanguage(language)
+
+  // Build extensions for CodeMirror
+  const extensions = useMemo(() => {
+    const exts = [
+      EditorView.lineWrapping,
+      EditorState.readOnly.of(true),
+      EditorView.editable.of(false)
+    ]
+
+    // Add language-specific extension if available
+    const langExt = getLanguageExtension(normalizedLanguage)
+    if (langExt) {
+      exts.push(langExt)
+    }
+
+    return exts
+  }, [normalizedLanguage])
 
   return (
     <div className="relative group my-3 rounded-lg overflow-hidden border border-default">
@@ -53,23 +74,35 @@ export const CodeBlock = memo(function CodeBlock({ code, language }: CodeBlockPr
         </button>
       </div>
 
-      {/* Code content */}
-      <Highlight theme={themes.vsDark} code={code} language={normalizedLanguage}>
-        {({ style, tokens, getLineProps, getTokenProps }) => (
-          <pre
-            className="code-block p-4 m-0 overflow-x-auto text-sm"
-            style={{ ...style, background: 'var(--input-bg)' }}
-          >
-            {tokens.map((line, i) => (
-              <div key={i} {...getLineProps({ line })}>
-                {line.map((token, key) => (
-                  <span key={key} {...getTokenProps({ token })} />
-                ))}
-              </div>
-            ))}
-          </pre>
-        )}
-      </Highlight>
+      {/* Code content with CodeMirror */}
+      <div className="code-block-viewer">
+        <CodeMirror
+          value={code}
+          theme={vscodeDark}
+          extensions={extensions}
+          basicSetup={{
+            lineNumbers: false,
+            foldGutter: false,
+            dropCursor: false,
+            allowMultipleSelections: false,
+            indentOnInput: false,
+            bracketMatching: false,
+            closeBrackets: false,
+            autocompletion: false,
+            rectangularSelection: false,
+            crosshairCursor: false,
+            highlightActiveLine: false,
+            highlightActiveLineGutter: false,
+            highlightSelectionMatches: false,
+            closeBracketsKeymap: false,
+            searchKeymap: false,
+            foldKeymap: false,
+            completionKeymap: false,
+            lintKeymap: false
+          }}
+          editable={false}
+        />
+      </div>
     </div>
   )
 })
@@ -83,7 +116,7 @@ function normalizeLanguage(lang: string): string {
     json: 'json',
     md: 'markdown',
     css: 'css',
-    scss: 'scss',
+    scss: 'css',
     html: 'html',
     py: 'python',
     yml: 'yaml',

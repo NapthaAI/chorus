@@ -28,15 +28,13 @@ export function CodeEditor({
   const extensions = useMemo(() => {
     const exts = [
       EditorView.lineWrapping,
+      EditorView.theme({
+        '&': { height: '100%' },
+        '.cm-scroller': { overflow: 'auto' }
+      }),
       bracketMatching(),
       closeBrackets(),
-      search(),
-      keymap.of([
-        ...defaultKeymap,
-        ...closeBracketsKeymap,
-        ...searchKeymap,
-        indentWithTab
-      ])
+      search()
     ]
 
     // Add language-specific extension if available
@@ -45,20 +43,26 @@ export function CodeEditor({
       exts.push(langExt)
     }
 
-    // Add save keymap if onSave is provided
-    if (onSave) {
-      exts.push(
-        keymap.of([
-          {
-            key: 'Mod-s',
-            run: () => {
-              onSave()
-              return true
-            }
+    // Build keymap with save handler first (higher priority)
+    const saveKeymap = onSave
+      ? [{
+          key: 'Mod-s',
+          preventDefault: true,
+          run: () => {
+            onSave()
+            return true
           }
-        ])
-      )
-    }
+        }]
+      : []
+
+    // Add combined keymap - save first for higher priority
+    exts.push(keymap.of([
+      ...saveKeymap,
+      ...defaultKeymap,
+      ...closeBracketsKeymap,
+      ...searchKeymap,
+      indentWithTab
+    ]))
 
     // Add read-only state if needed
     if (readOnly) {

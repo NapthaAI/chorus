@@ -32,6 +32,7 @@ const CloseIcon = () => (
 interface TabItemProps {
   tab: Tab
   isActive: boolean
+  isUnsaved?: boolean
   workspaceName?: string
   onActivate: () => void
   onClose: (e: React.MouseEvent) => void
@@ -39,7 +40,7 @@ interface TabItemProps {
   onDragEnd: () => void
 }
 
-function TabItem({ tab, isActive, workspaceName, onActivate, onClose, onDragStart, onDragEnd }: TabItemProps) {
+function TabItem({ tab, isActive, isUnsaved, workspaceName, onActivate, onClose, onDragStart, onDragEnd }: TabItemProps) {
   const handleMiddleClick = (e: React.MouseEvent) => {
     if (e.button === 1) {
       e.preventDefault()
@@ -86,6 +87,11 @@ function TabItem({ tab, isActive, workspaceName, onActivate, onClose, onDragStar
       `}
       title={getTooltip()}
     >
+      {/* Unsaved indicator */}
+      {isUnsaved && (
+        <span className="flex-shrink-0 w-2 h-2 rounded-full bg-accent" title="Unsaved changes" />
+      )}
+
       {/* Icon */}
       <span className={`flex-shrink-0 ${tab.type === 'chat' ? 'text-accent' : tab.type === 'workspace' ? 'text-amber-500' : ''}`}>
         <Icon />
@@ -125,7 +131,8 @@ export function TabBar({ onTabDragStart, onTabDragEnd }: TabBarProps) {
     splitPaneEnabled,
     splitPaneOrientation,
     toggleSplitPane,
-    setSplitPaneOrientation
+    setSplitPaneOrientation,
+    unsavedFiles
   } = useWorkspaceStore()
 
   // Helper to get workspace name for a tab
@@ -161,6 +168,7 @@ export function TabBar({ onTabDragStart, onTabDragEnd }: TabBarProps) {
             key={tab.id}
             tab={tab}
             isActive={tab.id === activeTabId}
+            isUnsaved={tab.type === 'file' && tab.filePath ? unsavedFiles.has(tab.filePath) : false}
             workspaceName={getWorkspaceName(tab)}
             onActivate={() => activateTab(tab.id)}
             onClose={(e) => {

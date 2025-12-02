@@ -219,7 +219,7 @@ export function FileViewer({ filePath }: FileViewerProps) {
           </div>
         ) : (
           // CodeEditor for all files (including markdown in raw mode)
-          <div className="h-full overflow-hidden">
+          <div className="file-editor-container">
             <CodeEditor
               content={editedContent ?? content ?? ''}
               language={language}

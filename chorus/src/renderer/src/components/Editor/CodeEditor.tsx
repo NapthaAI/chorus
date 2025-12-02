@@ -28,10 +28,6 @@ export function CodeEditor({
   const extensions = useMemo(() => {
     const exts = [
       EditorView.lineWrapping,
-      EditorView.theme({
-        '&': { height: '100%' },
-        '.cm-scroller': { overflow: 'auto' }
-      }),
       bracketMatching(),
       closeBrackets(),
       search()
@@ -86,6 +82,7 @@ export function CodeEditor({
     <CodeMirror
       value={content}
       height="100%"
+      style={{ height: '100%', overflow: 'hidden' }}
       theme={vscodeDark}
       extensions={extensions}
       onChange={handleChange}

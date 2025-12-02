@@ -327,3 +327,21 @@ body,
   border-top: 1px solid var(--border-color);
   margin: 1rem 0;
 }
+
+/* CodeMirror editor container - for FileViewer */
+.file-editor-container {
+  height: 100%;
+  position: relative;
+}
+
+.file-editor-container > div {
+  height: 100%;
+}
+
+.file-editor-container .cm-editor {
+  height: 100% !important;
+}
+
+.file-editor-container .cm-scroller {
+  overflow: auto !important;
+}

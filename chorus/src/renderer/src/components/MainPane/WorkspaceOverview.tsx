@@ -1,10 +1,12 @@
-import { useEffect } from 'react'
-import { ChangesPanel } from './ChangesPanel'
+import { useEffect, useState } from 'react'
+import { GitChangesPanel } from './GitChangesPanel'
+import { DiffViewer } from './DiffViewer'
 import { BranchCommitsGrid } from './BranchCommitsGrid'
 import { WorkspaceSettings } from './WorkspaceSettings'
 import { AgentSessionsPanel } from './AgentSessionsPanel'
 import { useUIStore } from '../../stores/ui-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { useFileTreeStore } from '../../stores/file-tree-store'
 import type { Workspace } from '../../types'
 
 interface WorkspaceOverviewProps {
@@ -125,11 +127,42 @@ function getInitials(name: string): string {
 export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
   const { setRightPanelTab, setRightPanelCollapsed, workspaceOverviewTab, setWorkspaceOverviewTab } = useUIStore()
   const { selectAgent, refreshWorkspace, loadCommands, getCommands } = useWorkspaceStore()
+  const triggerFileTreeRefresh = useFileTreeStore((state) => state.triggerRefresh)
+
+  // Diff viewer state
+  const [diffState, setDiffState] = useState<{
+    filePath: string
+    diff: string
+    staged: boolean
+  } | null>(null)
 
   // Load slash commands on mount
   useEffect(() => {
     loadCommands(workspace.id)
   }, [workspace.id, loadCommands])
+
+  const handleViewDiff = (filePath: string, staged: boolean, diff: string) => {
+    setDiffState({ filePath, diff, staged })
+  }
+
+  const handleCloseDiff = () => {
+    setDiffState(null)
+  }
+
+  const handleDiffAction = async (action: 'stage' | 'unstage' | 'discard') => {
+    if (!diffState) return
+
+    if (action === 'stage') {
+      await window.api.git.stageFile(workspace.path, diffState.filePath)
+    } else if (action === 'unstage') {
+      await window.api.git.unstageFile(workspace.path, diffState.filePath)
+    } else if (action === 'discard') {
+      await window.api.git.discardChanges(workspace.path, diffState.filePath)
+      triggerFileTreeRefresh()
+    }
+
+    setDiffState(null)
+  }
 
   const commands = getCommands(workspace.id)
 
@@ -311,28 +344,48 @@ export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
         {/* Git Tab */}
         {workspaceOverviewTab === 'git' && (
           <div>
-            {/* Uncommitted changes section */}
-            {workspace.gitBranch && (
-              <ChangesPanel workspacePath={workspace.path} />
-            )}
-
-            {/* Branches with commits grid - local only */}
-            {workspace.gitBranch && (
-              <div className="mb-8">
-                <BranchCommitsGrid
-                  workspacePath={workspace.path}
-                  onBranchChange={handleBranchChange}
-                  localOnly={true}
+            {/* Show diff viewer if active */}
+            {diffState ? (
+              <div className="mb-6 rounded-lg border border-default overflow-hidden h-[400px]">
+                <DiffViewer
+                  filePath={diffState.filePath}
+                  diff={diffState.diff}
+                  staged={diffState.staged}
+                  onClose={handleCloseDiff}
+                  onStage={diffState.staged ? undefined : () => handleDiffAction('stage')}
+                  onUnstage={diffState.staged ? () => handleDiffAction('unstage') : undefined}
+                  onDiscard={() => handleDiffAction('discard')}
                 />
               </div>
-            )}
+            ) : (
+              <>
+                {/* 1. Local Branches section - first */}
+                {workspace.gitBranch && (
+                  <div className="mb-6">
+                    <BranchCommitsGrid
+                      workspacePath={workspace.path}
+                      onBranchChange={handleBranchChange}
+                      localOnly={true}
+                    />
+                  </div>
+                )}
 
-            {/* Agent sessions (auto-created branches) */}
-            {workspace.gitBranch && (
-              <AgentSessionsPanel
-                workspacePath={workspace.path}
-                onBranchChange={handleBranchChange}
-              />
+                {/* 2. Uncommitted changes section */}
+                {workspace.gitBranch && (
+                  <GitChangesPanel
+                    workspacePath={workspace.path}
+                    onViewDiff={handleViewDiff}
+                  />
+                )}
+
+                {/* 3. Agent sessions (auto-created branches) */}
+                {workspace.gitBranch && (
+                  <AgentSessionsPanel
+                    workspacePath={workspace.path}
+                    onBranchChange={handleBranchChange}
+                  />
+                )}
+              </>
             )}
           </div>
         )}

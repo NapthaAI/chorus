@@ -34,6 +34,7 @@ import { listDirectory, readFile, writeFile, walkDirectory, deleteFile, renameFi
 import {
   isRepo,
   getStatus,
+  getDetailedStatus,
   getBranch,
   getLog,
   getLogForBranch,
@@ -55,7 +56,11 @@ import {
   push,
   discardChanges,
   stageFile,
-  unstageFile
+  unstageFile,
+  unstageAll,
+  discardAll,
+  getFileDiff,
+  getStagedFileDiff
 } from './services/git-service'
 import {
   listConversations,
@@ -584,6 +589,53 @@ app.whenReady().then(() => {
     try {
       await unstageFile(repoPath, filePath)
       return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:detailed-status', async (_event, path: string) => {
+    try {
+      const status = await getDetailedStatus(path)
+      return { success: true, data: status }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:stage-all', async (_event, path: string) => {
+    try {
+      await stageAll(path)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:unstage-all', async (_event, path: string) => {
+    try {
+      await unstageAll(path)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:discard-all', async (_event, path: string) => {
+    try {
+      await discardAll(path)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:file-diff', async (_event, repoPath: string, filePath: string, staged: boolean) => {
+    try {
+      const diff = staged
+        ? await getStagedFileDiff(repoPath, filePath)
+        : await getFileDiff(repoPath, filePath)
+      return { success: true, data: diff }
     } catch (error) {
       return { success: false, error: String(error) }
     }

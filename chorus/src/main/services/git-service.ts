@@ -12,6 +12,11 @@ export interface GitStatus {
   changes: GitChange[]
 }
 
+export interface DetailedGitStatus {
+  staged: GitChange[]
+  unstaged: GitChange[]
+}
+
 export interface GitCommit {
   hash: string
   message: string
@@ -38,7 +43,9 @@ function runGit(cwd: string, args: string): string {
     timeout: 10000,
     stdio: ['pipe', 'pipe', 'pipe']
   })
-  return output.trim()
+  // Use trimEnd() to preserve leading whitespace which is significant in git status --porcelain
+  // The format " M file" means unstaged, "M  file" means staged - leading space matters!
+  return output.trimEnd()
 }
 
 /**
@@ -102,6 +109,46 @@ export async function getStatus(path: string): Promise<GitStatus> {
     }
   } catch {
     return { isDirty: false, changes: [] }
+  }
+}
+
+/**
+ * Get detailed git status with staged/unstaged separation
+ * Uses `git status --porcelain` XY format:
+ *   X = index status, Y = worktree status
+ *   ' ' = unmodified, M = modified, A = added, D = deleted, ? = untracked
+ */
+export async function getDetailedStatus(path: string): Promise<DetailedGitStatus> {
+  try {
+    const output = runGit(path, 'status --porcelain')
+    const lines = output.split('\n').filter(Boolean)
+
+    const staged: GitChange[] = []
+    const unstaged: GitChange[] = []
+
+    for (const line of lines) {
+      if (line.length < 3) continue
+
+      const indexStatus = line[0] // X - staged status
+      const workStatus = line[1] // Y - unstaged status
+      // Use substring(2).trimStart() to handle variable spacing in porcelain output
+      const file = line.substring(2).trimStart()
+
+      // Staged changes (X is not space or ?)
+      if (indexStatus !== ' ' && indexStatus !== '?') {
+        staged.push({ file, status: indexStatus })
+      }
+
+      // Unstaged changes (Y is not space, or untracked ??)
+      if (workStatus !== ' ' || indexStatus === '?') {
+        const status = indexStatus === '?' ? '?' : workStatus
+        unstaged.push({ file, status })
+      }
+    }
+
+    return { staged, unstaged }
+  } catch {
+    return { staged: [], unstaged: [] }
   }
 }
 
@@ -620,9 +667,21 @@ export async function discardChanges(repoPath: string, filePath: string): Promis
 
 /**
  * Unstage a file (remove from staging area)
+ * Uses `git restore --staged` which works for both modified and new files
  */
 export async function unstageFile(repoPath: string, filePath: string): Promise<void> {
-  runGit(repoPath, `reset HEAD -- "${filePath}"`)
+  try {
+    // Try git restore --staged first (works in git 2.23+)
+    runGit(repoPath, `restore --staged -- "${filePath}"`)
+  } catch {
+    // Fallback: try reset HEAD (works for modified files)
+    try {
+      runGit(repoPath, `reset HEAD -- "${filePath}"`)
+    } catch {
+      // Last resort: for new files, use rm --cached
+      runGit(repoPath, `rm --cached -- "${filePath}"`)
+    }
+  }
 }
 
 /**
@@ -630,4 +689,48 @@ export async function unstageFile(repoPath: string, filePath: string): Promise<v
  */
 export async function stageFile(repoPath: string, filePath: string): Promise<void> {
   runGit(repoPath, `add "${filePath}"`)
+}
+
+/**
+ * Unstage all files (reset index to HEAD)
+ */
+export async function unstageAll(repoPath: string): Promise<void> {
+  try {
+    runGit(repoPath, 'reset HEAD')
+  } catch {
+    // reset HEAD may fail if there are no commits yet, ignore
+  }
+}
+
+/**
+ * Discard all changes (reset working tree to HEAD)
+ * WARNING: Destructive - loses all uncommitted work
+ */
+export async function discardAll(repoPath: string): Promise<void> {
+  // Reset all tracked files to HEAD
+  runGit(repoPath, 'checkout -- .')
+  // Remove untracked files and directories
+  runGit(repoPath, 'clean -fd')
+}
+
+/**
+ * Get diff for a specific unstaged file
+ */
+export async function getFileDiff(repoPath: string, filePath: string): Promise<string> {
+  try {
+    return runGit(repoPath, `diff -- "${filePath}"`)
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Get diff for a specific staged file
+ */
+export async function getStagedFileDiff(repoPath: string, filePath: string): Promise<string> {
+  try {
+    return runGit(repoPath, `diff --cached -- "${filePath}"`)
+  } catch {
+    return ''
+  }
 }

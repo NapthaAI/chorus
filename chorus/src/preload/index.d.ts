@@ -332,6 +332,11 @@ interface GitStatus {
   changes: GitChange[]
 }
 
+export interface DetailedGitStatus {
+  staged: GitChange[]
+  unstaged: GitChange[]
+}
+
 interface GitCommit {
   hash: string
   message: string
@@ -512,6 +517,13 @@ interface GitAPI {
   discardChanges: (repoPath: string, filePath: string) => Promise<ApiResult>
   stageFile: (repoPath: string, filePath: string) => Promise<ApiResult>
   unstageFile: (repoPath: string, filePath: string) => Promise<ApiResult>
+
+  // Enhanced git operations for staging workflow
+  detailedStatus: (path: string) => Promise<ApiResult<DetailedGitStatus>>
+  stageAll: (path: string) => Promise<ApiResult>
+  unstageAll: (path: string) => Promise<ApiResult>
+  discardAll: (path: string) => Promise<ApiResult>
+  fileDiff: (repoPath: string, filePath: string, staged: boolean) => Promise<ApiResult<string>>
 
   // Clone progress events
   onCloneProgress: (callback: (progress: CloneProgress) => void) => () => void

@@ -10,6 +10,7 @@ export type {
   DirectoryEntry,
   GitChange,
   GitStatus,
+  DetailedGitStatus,
   GitCommit,
   GitBranch,
   CloneProgress,

@@ -159,6 +159,18 @@ const api = {
     unstageFile: (repoPath: string, filePath: string) =>
       ipcRenderer.invoke('git:unstage-file', repoPath, filePath),
 
+    // Enhanced git operations for staging workflow
+    detailedStatus: (path: string) =>
+      ipcRenderer.invoke('git:detailed-status', path),
+    stageAll: (path: string) =>
+      ipcRenderer.invoke('git:stage-all', path),
+    unstageAll: (path: string) =>
+      ipcRenderer.invoke('git:unstage-all', path),
+    discardAll: (path: string) =>
+      ipcRenderer.invoke('git:discard-all', path),
+    fileDiff: (repoPath: string, filePath: string, staged: boolean) =>
+      ipcRenderer.invoke('git:file-diff', repoPath, filePath, staged),
+
     // Clone progress events
     onCloneProgress: (callback: (progress: CloneProgress) => void) => {
       const handler = (_event: unknown, progress: CloneProgress) => callback(progress)

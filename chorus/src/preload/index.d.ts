@@ -337,6 +337,14 @@ export interface DetailedGitStatus {
   unstaged: GitChange[]
 }
 
+export interface BranchSyncStatus {
+  ahead: number
+  behind: number
+  upstream: string | null
+  remote: string | null
+  branch: string
+}
+
 interface GitCommit {
   hash: string
   message: string
@@ -524,6 +532,13 @@ interface GitAPI {
   unstageAll: (path: string) => Promise<ApiResult>
   discardAll: (path: string) => Promise<ApiResult>
   fileDiff: (repoPath: string, filePath: string, staged: boolean) => Promise<ApiResult<string>>
+
+  // Remote sync operations
+  syncStatus: (path: string) => Promise<ApiResult<BranchSyncStatus>>
+  pushSetUpstream: (path: string, remote: string, branch: string) => Promise<ApiResult>
+  pull: (path: string) => Promise<ApiResult>
+  pullRebase: (path: string) => Promise<ApiResult>
+  fetch: (path: string) => Promise<ApiResult>
 
   // Clone progress events
   onCloneProgress: (callback: (progress: CloneProgress) => void) => () => void

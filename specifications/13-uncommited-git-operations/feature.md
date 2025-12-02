@@ -280,14 +280,239 @@ closeDiff: () => void
 6. **Concurrent changes** - Refresh status after any operation
 7. **File deleted externally** - Handle gracefully in diff viewer
 
+---
+
+## Part 2: Remote Sync Operations
+
+### Overview
+
+Add push, pull, and sync capabilities to the Local Branches panel. Users can synchronize their local branch with the remote, with options for merge or rebase workflows.
+
+### User Stories
+
+#### US-9: View Sync Status
+**As a** user working on a branch
+**I want to** see how my branch compares to the remote
+**So that** I know if I need to push or pull
+
+**Acceptance Criteria:**
+- [ ] Show ahead/behind counts next to current branch (e.g., ↑2 ↓1)
+- [ ] "Up to date" indicator when synced
+- [ ] "No upstream" indicator when branch has no remote tracking
+- [ ] Status refreshes after push/pull operations
+
+#### US-10: Push to Remote
+**As a** user with local commits
+**I want to** push my commits to the remote
+**So that** others can access my changes
+
+**Acceptance Criteria:**
+- [ ] Push button visible when ahead of remote
+- [ ] Shows commit count (e.g., "Push 3")
+- [ ] Handles "no upstream" by offering to publish branch
+- [ ] Shows error if push rejected (needs pull first)
+- [ ] Success feedback after push completes
+
+#### US-11: Pull from Remote
+**As a** user whose remote has new commits
+**I want to** pull changes from the remote
+**So that** I have the latest code
+
+**Acceptance Criteria:**
+- [ ] Pull button visible when behind remote
+- [ ] Shows commit count (e.g., "Pull 2")
+- [ ] User can choose: Merge or Rebase
+- [ ] Handles merge conflicts gracefully (show message, don't crash)
+- [ ] Success feedback after pull completes
+
+#### US-12: Sync (Pull + Push)
+**As a** user with both local and remote changes
+**I want to** sync my branch in one action
+**So that** I can quickly get up to date and share my work
+
+**Acceptance Criteria:**
+- [ ] Sync button when both ahead and behind
+- [ ] User chooses sync strategy before first sync:
+  - Merge then Push
+  - Rebase then Push
+- [ ] Remember user's preference per workspace
+- [ ] Shows progress during operation
+
+#### US-13: Publish Branch
+**As a** user on a local-only branch
+**I want to** publish it to the remote
+**So that** others can see and collaborate on it
+
+**Acceptance Criteria:**
+- [ ] "Publish" button when no upstream tracking branch
+- [ ] Sets upstream to `origin/<branch-name>`
+- [ ] Shows success with new tracking info
+
+#### US-14: Fetch Updates
+**As a** user wanting to check for remote changes
+**I want to** fetch without merging
+**So that** I can see what's new before pulling
+
+**Acceptance Criteria:**
+- [ ] Fetch/refresh button in branch section header
+- [ ] Updates ahead/behind counts
+- [ ] Non-destructive (doesn't change working directory)
+
+### UI Design
+
+#### Local Branches Panel with Sync Status
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ LOCAL BRANCHES                                          [⟳ Fetch]│
+├─────────────────────────────────────────────────────────────────┤
+│ ● main                                                          │
+│   origin/main · ↑2 ↓1                    [↓ Pull ▾] [↑ Push]   │
+├─────────────────────────────────────────────────────────────────┤
+│   feature/auth                                                  │
+│   feature/ui-update                                             │
+│   bugfix/login                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Sync Status Indicators
+
+| State | Display | Actions |
+|-------|---------|---------|
+| Up to date | `✓ Synced` | Fetch only |
+| Ahead only | `↑3` | Push |
+| Behind only | `↓2` | Pull (with strategy dropdown) |
+| Ahead & behind | `↑2 ↓1` | Pull then Push, or Sync button |
+| No upstream | `No remote` | Publish Branch |
+| No remote configured | `No remote` | (disabled) |
+
+#### Pull Strategy Dropdown
+
+```
+┌──────────────────────┐
+│ ↓ Pull ▾             │
+├──────────────────────┤
+│ ● Pull (merge)       │
+│ ○ Pull (rebase)      │
+├──────────────────────┤
+│ □ Remember choice    │
+└──────────────────────┘
+```
+
+### Technical Requirements
+
+#### Git Commands
+
+```typescript
+// Get ahead/behind counts relative to upstream
+git rev-list --count --left-right @{upstream}...HEAD
+// Returns: "2\t3" (2 behind, 3 ahead)
+
+// Check if upstream exists
+git rev-parse --abbrev-ref @{upstream}
+// Returns upstream name or error if none
+
+// Get remote name for current branch
+git config --get branch.<branch>.remote
+
+// Push to existing upstream
+git push
+
+// Push and set upstream (publish)
+git push -u origin <branch>
+
+// Pull with merge (default)
+git pull
+
+// Pull with rebase
+git pull --rebase
+
+// Fetch all remotes
+git fetch --all
+```
+
+#### New Backend Functions
+
+**File: `git-service.ts`**
+
+```typescript
+interface BranchSyncStatus {
+  ahead: number
+  behind: number
+  upstream: string | null  // e.g., "origin/main" or null if no tracking
+  remote: string | null    // e.g., "origin" or null
+}
+
+// Get sync status for current branch
+export async function getBranchSyncStatus(path: string): Promise<BranchSyncStatus>
+
+// Push current branch
+export async function push(path: string): Promise<void>
+
+// Push and set upstream (for new branches)
+export async function pushSetUpstream(path: string, remote: string, branch: string): Promise<void>
+
+// Pull with merge
+export async function pull(path: string): Promise<void>
+
+// Pull with rebase
+export async function pullRebase(path: string): Promise<void>
+
+// Fetch from all remotes
+export async function fetchAll(path: string): Promise<void>
+```
+
+#### New IPC Handlers
+
+| Handler | Purpose |
+|---------|---------|
+| `git:sync-status` | Get ahead/behind/upstream info |
+| `git:push` | Push to upstream |
+| `git:push-set-upstream` | Push and set tracking branch |
+| `git:pull` | Pull with merge |
+| `git:pull-rebase` | Pull with rebase |
+| `git:fetch` | Fetch from all remotes |
+
+#### State Management
+
+```typescript
+// workspace-store.ts additions
+interface BranchSyncState {
+  ahead: number
+  behind: number
+  upstream: string | null
+  isLoading: boolean
+  lastFetched: Date | null
+  preferredPullStrategy: 'merge' | 'rebase' | null
+}
+
+// Actions
+fetchSyncStatus: (workspaceId: string) => Promise<void>
+push: (workspaceId: string) => Promise<void>
+pull: (workspaceId: string, rebase?: boolean) => Promise<void>
+publishBranch: (workspaceId: string) => Promise<void>
+setPullStrategy: (workspaceId: string, strategy: 'merge' | 'rebase') => void
+```
+
+### Edge Cases
+
+1. **Push rejected** - Remote has changes, need to pull first → Show error message
+2. **Pull conflicts** - Merge/rebase has conflicts → Show conflict message, suggest resolution
+3. **No remote configured** - Repo has no remotes → Disable sync features, show info
+4. **Detached HEAD** - Not on a branch → Hide sync UI or show warning
+5. **Protected branch** - Push rejected by server → Show server error message
+6. **Network offline** - Operations fail → Show network error
+7. **Large push/pull** - Many commits → Show progress indicator
+
 ## Out of Scope
 
 - Interactive staging (hunk-level staging)
 - Amend previous commit
 - Multiple file diff tabs
 - Commit history viewer (covered by existing BranchCommitsGrid)
-- Push to remote (separate feature)
 - Stash management UI (backend exists, no UI priority)
+- Force push (too dangerous for UI)
+- Remote management (add/remove remotes)
 
 ## Success Metrics
 

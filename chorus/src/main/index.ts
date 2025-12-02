@@ -60,7 +60,12 @@ import {
   unstageAll,
   discardAll,
   getFileDiff,
-  getStagedFileDiff
+  getStagedFileDiff,
+  getBranchSyncStatus,
+  pushSetUpstream,
+  pull,
+  pullRebase,
+  fetchAll
 } from './services/git-service'
 import {
   listConversations,
@@ -636,6 +641,55 @@ app.whenReady().then(() => {
         ? await getStagedFileDiff(repoPath, filePath)
         : await getFileDiff(repoPath, filePath)
       return { success: true, data: diff }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // Remote sync operations
+  ipcMain.handle('git:sync-status', async (_event, path: string) => {
+    try {
+      const status = await getBranchSyncStatus(path)
+      return { success: true, data: status }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle(
+    'git:push-set-upstream',
+    async (_event, path: string, remote: string, branch: string) => {
+      try {
+        await pushSetUpstream(path, remote, branch)
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    }
+  )
+
+  ipcMain.handle('git:pull', async (_event, path: string) => {
+    try {
+      await pull(path)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:pull-rebase', async (_event, path: string) => {
+    try {
+      await pullRebase(path)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:fetch', async (_event, path: string) => {
+    try {
+      await fetchAll(path)
+      return { success: true }
     } catch (error) {
       return { success: false, error: String(error) }
     }

@@ -649,3 +649,486 @@ function ActionButton({
 | New: `CommitSection.tsx` | Commit message + button |
 | New: `DiffViewer.tsx` | Diff display component |
 | New: `GitGuidanceBanner.tsx` | First-time help banner |
+
+---
+
+## Phase 5: Remote Sync Operations
+
+### 5.1 Backend - Sync Status Functions
+
+**File: `chorus/src/main/services/git-service.ts`**
+
+```typescript
+export interface BranchSyncStatus {
+  ahead: number
+  behind: number
+  upstream: string | null  // e.g., "origin/main"
+  remote: string | null    // e.g., "origin"
+  branch: string
+}
+
+/**
+ * Get sync status for current branch (ahead/behind upstream)
+ */
+export async function getBranchSyncStatus(path: string): Promise<BranchSyncStatus> {
+  const branch = await getBranch(path)
+  if (!branch) {
+    return { ahead: 0, behind: 0, upstream: null, remote: null, branch: '' }
+  }
+
+  // Try to get upstream
+  let upstream: string | null = null
+  let remote: string | null = null
+  try {
+    upstream = runGit(path, 'rev-parse --abbrev-ref @{upstream}')
+    // Extract remote name from upstream (e.g., "origin/main" -> "origin")
+    const slashIndex = upstream.indexOf('/')
+    if (slashIndex > 0) {
+      remote = upstream.substring(0, slashIndex)
+    }
+  } catch {
+    // No upstream configured
+    return { ahead: 0, behind: 0, upstream: null, remote: null, branch }
+  }
+
+  // Get ahead/behind counts
+  try {
+    const output = runGit(path, 'rev-list --count --left-right @{upstream}...HEAD')
+    const [behind, ahead] = output.split('\t').map(Number)
+    return { ahead: ahead || 0, behind: behind || 0, upstream, remote, branch }
+  } catch {
+    return { ahead: 0, behind: 0, upstream, remote, branch }
+  }
+}
+
+/**
+ * Push current branch to upstream
+ */
+export async function push(path: string): Promise<void> {
+  runGit(path, 'push')
+}
+
+/**
+ * Push and set upstream tracking branch
+ */
+export async function pushSetUpstream(path: string, remote: string, branch: string): Promise<void> {
+  runGit(path, `push -u ${remote} ${branch}`)
+}
+
+/**
+ * Pull from upstream (merge)
+ */
+export async function pull(path: string): Promise<void> {
+  runGit(path, 'pull')
+}
+
+/**
+ * Pull from upstream (rebase)
+ */
+export async function pullRebase(path: string): Promise<void> {
+  runGit(path, 'pull --rebase')
+}
+
+/**
+ * Fetch from all remotes
+ */
+export async function fetchAll(path: string): Promise<void> {
+  runGit(path, 'fetch --all')
+}
+
+/**
+ * Check if repo has any remotes configured
+ */
+export async function hasRemotes(path: string): Promise<boolean> {
+  try {
+    const output = runGit(path, 'remote')
+    return output.trim().length > 0
+  } catch {
+    return false
+  }
+}
+```
+
+### 5.2 IPC Handlers
+
+**File: `chorus/src/main/index.ts`**
+
+```typescript
+ipcMain.handle('git:sync-status', async (_event, path: string) => {
+  try {
+    const status = await gitService.getBranchSyncStatus(path)
+    return { success: true, data: status }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
+ipcMain.handle('git:push', async (_event, path: string) => {
+  try {
+    await gitService.push(path)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
+ipcMain.handle('git:push-set-upstream', async (_event, path: string, remote: string, branch: string) => {
+  try {
+    await gitService.pushSetUpstream(path, remote, branch)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
+ipcMain.handle('git:pull', async (_event, path: string) => {
+  try {
+    await gitService.pull(path)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
+ipcMain.handle('git:pull-rebase', async (_event, path: string) => {
+  try {
+    await gitService.pullRebase(path)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
+ipcMain.handle('git:fetch', async (_event, path: string) => {
+  try {
+    await gitService.fetchAll(path)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+```
+
+### 5.3 Preload API
+
+**File: `chorus/src/preload/index.ts`**
+
+```typescript
+git: {
+  // ... existing
+  syncStatus: (path: string) => ipcRenderer.invoke('git:sync-status', path),
+  push: (path: string) => ipcRenderer.invoke('git:push', path),
+  pushSetUpstream: (path: string, remote: string, branch: string) =>
+    ipcRenderer.invoke('git:push-set-upstream', path, remote, branch),
+  pull: (path: string) => ipcRenderer.invoke('git:pull', path),
+  pullRebase: (path: string) => ipcRenderer.invoke('git:pull-rebase', path),
+  fetch: (path: string) => ipcRenderer.invoke('git:fetch', path),
+}
+```
+
+### 5.4 Type Definitions
+
+**File: `chorus/src/preload/index.d.ts`**
+
+```typescript
+export interface BranchSyncStatus {
+  ahead: number
+  behind: number
+  upstream: string | null
+  remote: string | null
+  branch: string
+}
+
+// Add to git API
+syncStatus: (path: string) => Promise<Result<BranchSyncStatus>>
+push: (path: string) => Promise<Result<void>>
+pushSetUpstream: (path: string, remote: string, branch: string) => Promise<Result<void>>
+pull: (path: string) => Promise<Result<void>>
+pullRebase: (path: string) => Promise<Result<void>>
+fetch: (path: string) => Promise<Result<void>>
+```
+
+---
+
+## Phase 6: Remote Sync UI
+
+### 6.1 Branch Sync Status Component
+
+**File: `chorus/src/renderer/src/components/MainPane/BranchSyncStatus.tsx`**
+
+```tsx
+interface BranchSyncStatusProps {
+  workspacePath: string
+  currentBranch: string
+}
+
+export function BranchSyncStatus({ workspacePath, currentBranch }: BranchSyncStatusProps) {
+  const [syncStatus, setSyncStatus] = useState<BranchSyncStatus | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [pullStrategy, setPullStrategy] = useState<'merge' | 'rebase'>('merge')
+  const [showPullMenu, setShowPullMenu] = useState(false)
+
+  const loadSyncStatus = async () => {
+    const result = await window.api.git.syncStatus(workspacePath)
+    if (result.success && result.data) {
+      setSyncStatus(result.data)
+    }
+  }
+
+  useEffect(() => {
+    loadSyncStatus()
+  }, [workspacePath, currentBranch])
+
+  const handleFetch = async () => {
+    setIsLoading(true)
+    try {
+      await window.api.git.fetch(workspacePath)
+      await loadSyncStatus()
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handlePush = async () => {
+    setIsLoading(true)
+    try {
+      if (!syncStatus?.upstream) {
+        // Publish branch
+        await window.api.git.pushSetUpstream(workspacePath, 'origin', currentBranch)
+      } else {
+        await window.api.git.push(workspacePath)
+      }
+      await loadSyncStatus()
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handlePull = async (rebase: boolean) => {
+    setIsLoading(true)
+    setShowPullMenu(false)
+    try {
+      if (rebase) {
+        await window.api.git.pullRebase(workspacePath)
+      } else {
+        await window.api.git.pull(workspacePath)
+      }
+      await loadSyncStatus()
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  if (!syncStatus) return null
+
+  const { ahead, behind, upstream } = syncStatus
+  const hasUpstream = !!upstream
+
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      {/* Upstream info */}
+      {hasUpstream ? (
+        <span className="text-muted">{upstream}</span>
+      ) : (
+        <span className="text-muted/60 italic">No remote</span>
+      )}
+
+      {/* Ahead/Behind indicators */}
+      {hasUpstream && (
+        <div className="flex items-center gap-1.5">
+          {ahead > 0 && (
+            <span className="text-green-400 flex items-center gap-0.5">
+              <ArrowUpIcon className="w-3 h-3" />
+              {ahead}
+            </span>
+          )}
+          {behind > 0 && (
+            <span className="text-amber-400 flex items-center gap-0.5">
+              <ArrowDownIcon className="w-3 h-3" />
+              {behind}
+            </span>
+          )}
+          {ahead === 0 && behind === 0 && (
+            <span className="text-green-400 flex items-center gap-0.5">
+              <CheckIcon className="w-3 h-3" />
+              Synced
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-1 ml-auto">
+        {isLoading ? (
+          <Spinner className="w-4 h-4" />
+        ) : (
+          <>
+            {/* Fetch button */}
+            <Tooltip content="Fetch from remote">
+              <button
+                onClick={handleFetch}
+                className="p-1 rounded hover:bg-hover text-muted hover:text-primary"
+              >
+                <RefreshIcon className="w-4 h-4" />
+              </button>
+            </Tooltip>
+
+            {/* Pull button (with dropdown for strategy) */}
+            {(behind > 0 || !hasUpstream) && hasUpstream && (
+              <div className="relative">
+                <Tooltip content={`Pull ${behind} commit${behind !== 1 ? 's' : ''}`}>
+                  <button
+                    onClick={() => setShowPullMenu(!showPullMenu)}
+                    className="px-2 py-1 rounded hover:bg-hover text-muted hover:text-primary flex items-center gap-1"
+                  >
+                    <ArrowDownIcon className="w-3 h-3" />
+                    Pull
+                    <ChevronDownIcon className="w-3 h-3" />
+                  </button>
+                </Tooltip>
+                {showPullMenu && (
+                  <PullStrategyMenu
+                    onSelect={handlePull}
+                    onClose={() => setShowPullMenu(false)}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Push / Publish button */}
+            {(ahead > 0 || !hasUpstream) && (
+              <Tooltip content={hasUpstream ? `Push ${ahead} commit${ahead !== 1 ? 's' : ''}` : 'Publish branch'}>
+                <button
+                  onClick={handlePush}
+                  className="px-2 py-1 rounded bg-green-600/20 hover:bg-green-600/30 text-green-400 flex items-center gap-1"
+                >
+                  <ArrowUpIcon className="w-3 h-3" />
+                  {hasUpstream ? 'Push' : 'Publish'}
+                </button>
+              </Tooltip>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+```
+
+### 6.2 Pull Strategy Menu
+
+```tsx
+function PullStrategyMenu({
+  onSelect,
+  onClose
+}: {
+  onSelect: (rebase: boolean) => void
+  onClose: () => void
+}) {
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+
+      {/* Menu */}
+      <div className="absolute top-full right-0 mt-1 w-48 bg-surface border border-default rounded shadow-lg z-50">
+        <button
+          onClick={() => onSelect(false)}
+          className="w-full px-3 py-2 text-left text-sm hover:bg-hover flex items-center gap-2"
+        >
+          <MergeIcon className="w-4 h-4 text-muted" />
+          <div>
+            <div className="text-primary">Pull (merge)</div>
+            <div className="text-xs text-muted">Create merge commit</div>
+          </div>
+        </button>
+        <button
+          onClick={() => onSelect(true)}
+          className="w-full px-3 py-2 text-left text-sm hover:bg-hover flex items-center gap-2"
+        >
+          <RebaseIcon className="w-4 h-4 text-muted" />
+          <div>
+            <div className="text-primary">Pull (rebase)</div>
+            <div className="text-xs text-muted">Rebase local commits</div>
+          </div>
+        </button>
+      </div>
+    </>
+  )
+}
+```
+
+### 6.3 Integration with Local Branches Panel
+
+Update the existing branch display to include sync status:
+
+```tsx
+// In BranchSelector.tsx or BranchesPanel.tsx
+function CurrentBranchRow({ workspace }: { workspace: Workspace }) {
+  return (
+    <div className="p-3 border-b border-default">
+      {/* Branch name with indicator */}
+      <div className="flex items-center gap-2 mb-2">
+        <BranchIcon className="w-4 h-4 text-green-400" />
+        <span className="font-medium text-primary">{workspace.branch}</span>
+      </div>
+
+      {/* Sync status - compact, below branch name */}
+      <BranchSyncStatus
+        workspacePath={workspace.path}
+        currentBranch={workspace.branch || 'main'}
+      />
+    </div>
+  )
+}
+```
+
+---
+
+## Testing Checklist - Remote Sync
+
+### Backend
+- [ ] `getBranchSyncStatus` returns correct ahead/behind counts
+- [ ] `getBranchSyncStatus` handles no upstream gracefully
+- [ ] `push` pushes commits to upstream
+- [ ] `pushSetUpstream` creates tracking branch
+- [ ] `pull` merges from upstream
+- [ ] `pullRebase` rebases on upstream
+- [ ] `fetchAll` updates remote refs
+- [ ] All operations handle errors gracefully
+
+### UI
+- [ ] Sync status displays correctly for current branch
+- [ ] Ahead indicator shows when local has commits
+- [ ] Behind indicator shows when remote has commits
+- [ ] "Synced" shows when up to date
+- [ ] "No remote" shows when no upstream
+- [ ] Fetch button updates status
+- [ ] Pull dropdown shows merge/rebase options
+- [ ] Pull merge works correctly
+- [ ] Pull rebase works correctly
+- [ ] Push button pushes commits
+- [ ] Publish button sets upstream for new branches
+- [ ] Loading spinner during operations
+- [ ] Error messages display on failure
+
+### Edge Cases
+- [ ] Works with no remote configured (disables sync)
+- [ ] Handles push rejection (needs pull first)
+- [ ] Handles pull conflicts (shows error message)
+- [ ] Works on detached HEAD (shows warning or hides)
+- [ ] Handles network errors gracefully
+
+---
+
+## File Changes Summary - Phase 5 & 6
+
+| File | Change |
+|------|--------|
+| `git-service.ts` | Add `getBranchSyncStatus`, `push`, `pushSetUpstream`, `pull`, `pullRebase`, `fetchAll` |
+| `main/index.ts` | Add IPC handlers for sync operations |
+| `preload/index.ts` | Expose sync functions to renderer |
+| `preload/index.d.ts` | Add `BranchSyncStatus` type and function signatures |
+| New: `BranchSyncStatus.tsx` | Sync status display with push/pull/fetch |
+| New: `PullStrategyMenu.tsx` | Dropdown for merge vs rebase |
+| `BranchSelector.tsx` or `BranchesPanel.tsx` | Integrate sync status into branch display |

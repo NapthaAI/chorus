@@ -57,6 +57,275 @@ const TrashIcon = () => (
   </svg>
 )
 
+// Sync status icons
+const ArrowUpIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M3.47 7.78a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0l4.25 4.25a.75.75 0 01-1.06 1.06L8.75 4.56v8.69a.75.75 0 01-1.5 0V4.56L4.03 7.78a.75.75 0 01-1.06 0z" />
+  </svg>
+)
+
+const ArrowDownIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M12.53 8.22a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06 0L2.97 9.28a.75.75 0 011.06-1.06l3.22 3.22V2.75a.75.75 0 011.5 0v8.69l3.22-3.22a.75.75 0 011.06 0z" />
+  </svg>
+)
+
+const RefreshIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M8 3a5 5 0 104.546 2.914.5.5 0 01.908-.418A6 6 0 118 2v1z" />
+    <path d="M8 1v3.5l3-2L8 1z" />
+  </svg>
+)
+
+const ChevronDownIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 6L8 10L12 6" />
+  </svg>
+)
+
+const CloudUploadIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M4.406 1.342A5.53 5.53 0 018 0c2.69 0 4.923 2 5.166 4.579C14.758 4.804 16 6.137 16 7.773 16 9.569 14.502 11 12.687 11H10a.75.75 0 010-1.5h2.687C13.654 9.5 14.5 8.724 14.5 7.773c0-.951-.846-1.726-1.813-1.726-.386 0-.762.097-1.088.297a.75.75 0 01-1.036-.228A4.03 4.03 0 008 4.5c-2.19 0-3.97 1.751-3.97 3.912 0 .172.012.343.035.513a.75.75 0 01-.649.846A1.474 1.474 0 001.5 11.228c0 .62.4 1.149.932 1.355a.75.75 0 11-.494 1.417A2.972 2.972 0 010 11.228a2.973 2.973 0 012.441-2.919 5.441 5.441 0 01-.035-.597A5.404 5.404 0 014.406 1.342z" />
+    <path d="M8.75 6.5v4.25a.75.75 0 01-1.5 0V6.5L5.72 8.03a.75.75 0 01-1.06-1.06l2.5-2.5a.75.75 0 011.06 0l2.5 2.5a.75.75 0 11-1.06 1.06L8.75 6.5z" />
+  </svg>
+)
+
+// Tooltip component
+function Tooltip({ children, content }: { children: React.ReactNode; content: string }) {
+  return (
+    <div className="relative group/tooltip">
+      {children}
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-zinc-800 border border-zinc-600 rounded shadow-lg text-xs text-zinc-100 whitespace-nowrap opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none z-50">
+        {content}
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-600" />
+      </div>
+    </div>
+  )
+}
+
+// Pull strategy menu
+function PullStrategyMenu({
+  onSelect,
+  onClose
+}: {
+  onSelect: (rebase: boolean) => void
+  onClose: () => void
+}) {
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute top-full left-0 mt-1 w-44 bg-surface border border-default rounded shadow-lg z-50">
+        <button
+          onClick={() => onSelect(false)}
+          className="w-full px-3 py-2 text-left text-xs hover:bg-hover flex flex-col"
+        >
+          <span className="text-primary">Pull (merge)</span>
+          <span className="text-muted/70">Create merge commit</span>
+        </button>
+        <button
+          onClick={() => onSelect(true)}
+          className="w-full px-3 py-2 text-left text-xs hover:bg-hover flex flex-col"
+        >
+          <span className="text-primary">Pull (rebase)</span>
+          <span className="text-muted/70">Rebase local commits</span>
+        </button>
+      </div>
+    </>
+  )
+}
+
+// Branch sync status component
+interface BranchSyncStatusProps {
+  workspacePath: string
+  currentBranch: string
+  onSyncComplete: () => void
+}
+
+function BranchSyncStatus({ workspacePath, currentBranch, onSyncComplete }: BranchSyncStatusProps) {
+  const [syncStatus, setSyncStatus] = useState<{
+    ahead: number
+    behind: number
+    upstream: string | null
+    remote: string | null
+  } | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [showPullMenu, setShowPullMenu] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadSyncStatus = useCallback(async () => {
+    const result = await window.api.git.syncStatus(workspacePath)
+    if (result.success && result.data) {
+      setSyncStatus(result.data)
+      setError(null)
+    }
+  }, [workspacePath])
+
+  useEffect(() => {
+    loadSyncStatus()
+  }, [loadSyncStatus, currentBranch])
+
+  const handleFetch = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const result = await window.api.git.fetch(workspacePath)
+      if (result.success) {
+        await loadSyncStatus()
+      } else {
+        setError(result.error || 'Fetch failed')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handlePush = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      let result
+      if (!syncStatus?.upstream) {
+        result = await window.api.git.pushSetUpstream(workspacePath, 'origin', currentBranch)
+      } else {
+        result = await window.api.git.push(workspacePath)
+      }
+      if (result.success) {
+        await loadSyncStatus()
+        onSyncComplete()
+      } else {
+        setError(result.error || 'Push failed')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handlePull = async (rebase: boolean) => {
+    setIsLoading(true)
+    setShowPullMenu(false)
+    setError(null)
+    try {
+      const result = rebase
+        ? await window.api.git.pullRebase(workspacePath)
+        : await window.api.git.pull(workspacePath)
+      if (result.success) {
+        await loadSyncStatus()
+        onSyncComplete()
+      } else {
+        setError(result.error || 'Pull failed')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  if (!syncStatus) return null
+
+  const { ahead, behind, upstream } = syncStatus
+  const hasUpstream = !!upstream
+
+  return (
+    <div className="flex items-center gap-3 px-1 py-2 bg-surface/50 rounded-lg border border-default/50 text-xs">
+      {/* Upstream info */}
+      <div className="flex items-center gap-2">
+        <span className="text-muted/70">Remote:</span>
+        {hasUpstream ? (
+          <span className="text-muted font-mono">{upstream}</span>
+        ) : (
+          <span className="text-muted/50 italic">No tracking branch</span>
+        )}
+      </div>
+
+      {/* Ahead/Behind indicators */}
+      {hasUpstream && (
+        <div className="flex items-center gap-2">
+          {ahead > 0 && (
+            <span className="text-green-400 flex items-center gap-0.5" title={`${ahead} commit${ahead !== 1 ? 's' : ''} ahead`}>
+              <ArrowUpIcon />
+              {ahead}
+            </span>
+          )}
+          {behind > 0 && (
+            <span className="text-amber-400 flex items-center gap-0.5" title={`${behind} commit${behind !== 1 ? 's' : ''} behind`}>
+              <ArrowDownIcon />
+              {behind}
+            </span>
+          )}
+          {ahead === 0 && behind === 0 && (
+            <span className="text-green-400/70 flex items-center gap-1">
+              <CheckIcon />
+              Synced
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Error message */}
+      {error && (
+        <span className="text-red-400 truncate max-w-[200px]" title={error}>
+          {error}
+        </span>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-1 ml-auto">
+        {isLoading ? (
+          <div className="px-2">
+            <LoadingSpinner />
+          </div>
+        ) : (
+          <>
+            {/* Fetch button */}
+            <Tooltip content="Fetch from remote">
+              <button
+                onClick={handleFetch}
+                className="p-1.5 rounded hover:bg-hover text-muted hover:text-primary transition-colors"
+              >
+                <RefreshIcon />
+              </button>
+            </Tooltip>
+
+            {/* Pull button */}
+            {hasUpstream && behind > 0 && (
+              <div className="relative">
+                <Tooltip content={`Pull ${behind} commit${behind !== 1 ? 's' : ''}`}>
+                  <button
+                    onClick={() => setShowPullMenu(!showPullMenu)}
+                    className="px-2 py-1 rounded hover:bg-hover text-amber-400 flex items-center gap-1 transition-colors"
+                  >
+                    <ArrowDownIcon />
+                    Pull
+                    <ChevronDownIcon />
+                  </button>
+                </Tooltip>
+                {showPullMenu && (
+                  <PullStrategyMenu
+                    onSelect={handlePull}
+                    onClose={() => setShowPullMenu(false)}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Push / Publish button */}
+            {(ahead > 0 || !hasUpstream) && (
+              <Tooltip content={hasUpstream ? `Push ${ahead} commit${ahead !== 1 ? 's' : ''}` : 'Publish branch to remote'}>
+                <button
+                  onClick={handlePush}
+                  className="px-2 py-1 rounded bg-green-600/20 hover:bg-green-600/30 text-green-400 flex items-center gap-1 transition-colors"
+                >
+                  {hasUpstream ? <ArrowUpIcon /> : <CloudUploadIcon />}
+                  {hasUpstream ? 'Push' : 'Publish'}
+                </button>
+              </Tooltip>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const BRANCHES_PER_PAGE = 5
 const COMMITS_PER_BRANCH = 10
 
@@ -413,6 +682,22 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = f
     )
   }
 
+  // Get current branch name
+  const currentBranch = branches.find(b => b.isCurrent)
+
+  // Reload branches after sync
+  const handleSyncComplete = () => {
+    onBranchChange()
+    // Reload branches to get updated commit counts
+    window.api.git.listBranches(workspacePath).then((result) => {
+      if (result.success && result.data) {
+        setBranches(result.data)
+        // Clear commits cache to force reload
+        setBranchCommits(new Map())
+      }
+    })
+  }
+
   return (
     <div className="space-y-4">
       {/* Header with navigation */}
@@ -442,6 +727,15 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = f
           </div>
         )}
       </div>
+
+      {/* Sync status for current branch */}
+      {currentBranch && (
+        <BranchSyncStatus
+          workspacePath={workspacePath}
+          currentBranch={currentBranch.name}
+          onSyncComplete={handleSyncComplete}
+        />
+      )}
 
       {/* 5-column grid */}
       <div className="grid grid-cols-5 gap-3">

@@ -734,3 +734,93 @@ export async function getStagedFileDiff(repoPath: string, filePath: string): Pro
     return ''
   }
 }
+
+// ============================================================================
+// Remote Sync Operations
+// ============================================================================
+
+export interface BranchSyncStatus {
+  ahead: number
+  behind: number
+  upstream: string | null // e.g., "origin/main"
+  remote: string | null // e.g., "origin"
+  branch: string
+}
+
+/**
+ * Get sync status for current branch (ahead/behind upstream)
+ */
+export async function getBranchSyncStatus(path: string): Promise<BranchSyncStatus> {
+  const branch = await getBranch(path)
+  if (!branch) {
+    return { ahead: 0, behind: 0, upstream: null, remote: null, branch: '' }
+  }
+
+  // Try to get upstream
+  let upstream: string | null = null
+  let remote: string | null = null
+  try {
+    upstream = runGit(path, 'rev-parse --abbrev-ref @{upstream}')
+    // Extract remote name from upstream (e.g., "origin/main" -> "origin")
+    const slashIndex = upstream.indexOf('/')
+    if (slashIndex > 0) {
+      remote = upstream.substring(0, slashIndex)
+    }
+  } catch {
+    // No upstream configured
+    return { ahead: 0, behind: 0, upstream: null, remote: null, branch }
+  }
+
+  // Get ahead/behind counts
+  try {
+    const output = runGit(path, 'rev-list --count --left-right @{upstream}...HEAD')
+    const [behind, ahead] = output.split('\t').map(Number)
+    return { ahead: ahead || 0, behind: behind || 0, upstream, remote, branch }
+  } catch {
+    return { ahead: 0, behind: 0, upstream, remote, branch }
+  }
+}
+
+/**
+ * Push and set upstream tracking branch (simple version for sync UI)
+ */
+export async function pushSetUpstream(
+  path: string,
+  remote: string,
+  branch: string
+): Promise<void> {
+  runGit(path, `push -u ${remote} ${branch}`)
+}
+
+/**
+ * Pull from upstream (merge)
+ */
+export async function pull(path: string): Promise<void> {
+  runGit(path, 'pull')
+}
+
+/**
+ * Pull from upstream (rebase)
+ */
+export async function pullRebase(path: string): Promise<void> {
+  runGit(path, 'pull --rebase')
+}
+
+/**
+ * Fetch from all remotes
+ */
+export async function fetchAll(path: string): Promise<void> {
+  runGit(path, 'fetch --all')
+}
+
+/**
+ * Check if repo has any remotes configured
+ */
+export async function hasRemotes(path: string): Promise<boolean> {
+  try {
+    const output = runGit(path, 'remote')
+    return output.length > 0
+  } catch {
+    return false
+  }
+}

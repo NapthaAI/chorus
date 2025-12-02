@@ -171,6 +171,14 @@ const api = {
     fileDiff: (repoPath: string, filePath: string, staged: boolean) =>
       ipcRenderer.invoke('git:file-diff', repoPath, filePath, staged),
 
+    // Remote sync operations
+    syncStatus: (path: string) => ipcRenderer.invoke('git:sync-status', path),
+    pushSetUpstream: (path: string, remote: string, branch: string) =>
+      ipcRenderer.invoke('git:push-set-upstream', path, remote, branch),
+    pull: (path: string) => ipcRenderer.invoke('git:pull', path),
+    pullRebase: (path: string) => ipcRenderer.invoke('git:pull-rebase', path),
+    fetch: (path: string) => ipcRenderer.invoke('git:fetch', path),
+
     // Clone progress events
     onCloneProgress: (callback: (progress: CloneProgress) => void) => {
       const handler = (_event: unknown, progress: CloneProgress) => callback(progress)

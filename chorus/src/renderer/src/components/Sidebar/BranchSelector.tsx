@@ -10,6 +10,7 @@ interface GitBranch {
 interface BranchSelectorProps {
   currentBranch: string
   workspacePath: string
+  workspaceId: string
   onBranchChange: (branch: string) => void
 }
 
@@ -60,7 +61,7 @@ interface DeleteConfirmState {
   branchName: string
 }
 
-export function BranchSelector({ currentBranch, workspacePath, onBranchChange }: BranchSelectorProps) {
+export function BranchSelector({ currentBranch, workspacePath, workspaceId, onBranchChange }: BranchSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [branches, setBranches] = useState<GitBranch[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -166,7 +167,7 @@ export function BranchSelector({ currentBranch, workspacePath, onBranchChange }:
 
     setIsDeleting(true)
     try {
-      const result = await window.api.git.deleteBranch(workspacePath, deleteConfirm.branchName, true)
+      const result = await window.api.git.deleteBranch(workspacePath, deleteConfirm.branchName, true, workspaceId)
       if (result.success) {
         // Reload branches
         await loadBranches()

@@ -143,6 +143,13 @@ async function ensureAgentBranch(
       originalBranches.set(conversationId, currentBranch)
     }
 
+    // Get the default branch (main or master) to use as base
+    const defaultBranch = await gitService.getDefaultBranch(repoPath)
+    if (!defaultBranch) {
+      console.log('[SDK] No main/master branch found, using current branch as base')
+    }
+    const baseBranch = defaultBranch || currentBranch || 'HEAD'
+
     // Check for uncommitted changes
     const status = await gitService.getStatus(repoPath)
     if (status.isDirty) {
@@ -157,8 +164,9 @@ async function ensureAgentBranch(
       await gitService.checkout(repoPath, branchName)
       console.log(`[SDK] Checked out existing agent branch: ${branchName}`)
     } else {
-      await gitService.createBranch(repoPath, branchName)
-      console.log(`[SDK] Created new agent branch: ${branchName}`)
+      // Always create branch from main/master (not current branch)
+      await gitService.createBranchFrom(repoPath, branchName, baseBranch)
+      console.log(`[SDK] Created new agent branch: ${branchName} from ${baseBranch}`)
     }
 
     // Pop stash if we stashed
@@ -642,7 +650,11 @@ export async function sendMessageSDK(
 
         // Auto-create agent branch (only for new sessions)
         if (isNewSession) {
-          await ensureAgentBranch(conversationId, newSessionId, agentName, repoPath, mainWindow, effectiveGitSettings)
+          const branchName = await ensureAgentBranch(conversationId, newSessionId, agentName, repoPath, mainWindow, effectiveGitSettings)
+          // Store branchName in conversation for cascade delete
+          if (branchName) {
+            updateConversation(conversationId, { branchName })
+          }
         }
       }
 

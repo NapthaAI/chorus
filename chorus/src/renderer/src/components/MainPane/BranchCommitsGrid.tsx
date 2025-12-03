@@ -4,6 +4,7 @@ import { useFileTreeStore } from '../../stores/file-tree-store'
 
 interface BranchCommitsGridProps {
   workspacePath: string
+  workspaceId: string
   onBranchChange: () => void
   localOnly?: boolean
 }
@@ -473,7 +474,7 @@ function BranchColumn({ branch, commits, isLoading, isCheckingOut, onCheckout, o
   )
 }
 
-export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = false }: BranchCommitsGridProps) {
+export function BranchCommitsGrid({ workspacePath, workspaceId, onBranchChange, localOnly = false }: BranchCommitsGridProps) {
   const [branches, setBranches] = useState<GitBranch[]>([])
   const [branchCommits, setBranchCommits] = useState<Map<string, GitCommit[]>>(new Map())
   const [loadingBranches, setLoadingBranches] = useState<Set<string>>(new Set())
@@ -483,6 +484,7 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = f
   const [error, setError] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ branchName: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [defaultBranch, setDefaultBranch] = useState<string | null>(null)
   const triggerFileTreeRefresh = useFileTreeStore((state) => state.triggerRefresh)
 
   // Sort branches: current first, then local, then remote (excluding duplicates)
@@ -523,10 +525,21 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = f
     (pageIndex + 1) * BRANCHES_PER_PAGE
   )
 
-  // Load all branches
+  // Load default branch and all branches
   useEffect(() => {
     setIsLoadingBranches(true)
     setError(null)
+
+    // Fetch default branch first
+    window.api.git.getDefaultBranch(workspacePath)
+      .then((result) => {
+        if (result.success && result.data) {
+          setDefaultBranch(result.data)
+        }
+      })
+      .catch(() => {
+        // Default branch not found, that's okay
+      })
 
     window.api.git.listBranches(workspacePath)
       .then((result) => {
@@ -560,9 +573,27 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = f
     })
 
     // Load commits in parallel
+    // For agent branches, use logForBranchOnly to show only new commits (like GitButler)
     Promise.all(
       branchesToLoad.map(async (branch) => {
         try {
+          const isAgentBranch = branch.name.startsWith('agent/')
+
+          // For agent branches, show only commits unique to that branch
+          if (isAgentBranch && defaultBranch) {
+            const result = await window.api.git.logForBranchOnly(
+              workspacePath,
+              branch.name,
+              defaultBranch,
+              COMMITS_PER_BRANCH
+            )
+            return {
+              branchName: branch.name,
+              commits: result.success && result.data ? result.data : []
+            }
+          }
+
+          // For non-agent branches, show regular log
           const result = await window.api.git.logForBranch(
             workspacePath,
             branch.name,
@@ -590,7 +621,7 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = f
         return next
       })
     })
-  }, [visibleBranches, workspacePath, branchCommits, loadingBranches])
+  }, [visibleBranches, workspacePath, branchCommits, loadingBranches, defaultBranch])
 
   const handleCheckout = async (branch: GitBranch) => {
     if (branch.isCurrent || isCheckingOut) return
@@ -636,7 +667,7 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = f
 
     setIsDeleting(true)
     try {
-      const result = await window.api.git.deleteBranch(workspacePath, deleteConfirm.branchName, true)
+      const result = await window.api.git.deleteBranch(workspacePath, deleteConfirm.branchName, true, workspaceId)
       if (result.success) {
         // Reload branches
         const branchResult = await window.api.git.listBranches(workspacePath)
@@ -760,30 +791,49 @@ export function BranchCommitsGrid({ workspacePath, onBranchChange, localOnly = f
 
       {/* Delete Confirmation Dialog */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/40 flex items-start justify-center pt-[15%] z-50">
-          <div className="bg-surface border border-default rounded shadow-lg w-[400px]">
-            <div className="p-4">
-              <p className="text-primary text-sm">
-                Delete branch <span className="font-mono text-secondary">{deleteConfirm.branchName}</span>?
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-[15%] z-50">
+          <div className="bg-surface border border-default rounded-lg shadow-xl w-[420px]">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-default">
+              <div className="p-2 bg-red-500/10 rounded-full">
+                <svg className="w-5 h-5 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h3 className="text-primary font-medium">Delete Branch</h3>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 space-y-3">
+              <p className="text-secondary text-sm">
+                Are you sure you want to delete this branch?
+              </p>
+              <div className="bg-hover/50 rounded px-3 py-2 border border-default">
+                <code className="text-sm text-primary font-mono">{deleteConfirm.branchName}</code>
+              </div>
+              <p className="text-muted text-xs">
+                This action cannot be undone. Any unmerged commits will be lost.
               </p>
             </div>
-            <div className="px-4 pb-3 flex justify-end gap-2">
+
+            {/* Actions */}
+            <div className="px-4 pb-4 flex justify-end gap-2">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="px-3 py-1.5 text-sm rounded border border-default hover:bg-hover text-secondary transition-colors"
+                className="px-4 py-2 text-sm rounded-md border border-default hover:bg-hover text-secondary transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDeleteConfirm}
                 disabled={isDeleting}
-                className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                className={`px-4 py-2 text-sm rounded-md font-medium transition-colors ${
                   isDeleting
                     ? 'bg-red-600/50 text-white/50 cursor-not-allowed'
                     : 'bg-red-600 hover:bg-red-700 text-white'
                 }`}
               >
-                {isDeleting ? 'Deleting...' : 'Delete'}
+                {isDeleting ? 'Deleting...' : 'Delete Branch'}
               </button>
             </div>
           </div>

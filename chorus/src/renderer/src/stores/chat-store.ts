@@ -37,7 +37,7 @@ interface ChatStore {
   loadConversations: (workspaceId: string, agentId: string) => Promise<void>
   selectConversation: (conversationId: string | null) => Promise<void>
   createConversation: (workspaceId: string, agentId: string) => Promise<string | null>
-  deleteConversation: (conversationId: string) => Promise<void>
+  deleteConversation: (conversationId: string, repoPath?: string) => Promise<void>
   sendMessage: (content: string, workspaceId: string, agentId: string, repoPath: string, agentFilePath?: string) => Promise<void>
   appendStreamDelta: (delta: string) => void
   appendMessage: (message: ConversationMessage) => void
@@ -223,10 +223,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  // Delete a conversation
-  deleteConversation: async (conversationId: string) => {
+  // Delete a conversation (and optionally its associated branch)
+  deleteConversation: async (conversationId: string, repoPath?: string) => {
     try {
-      const result = await window.api.conversation.delete(conversationId)
+      const result = await window.api.conversation.delete(conversationId, repoPath)
       if (result.success) {
         const { conversations, activeConversationId } = get()
         const newConversations = conversations.filter(c => c.id !== conversationId)

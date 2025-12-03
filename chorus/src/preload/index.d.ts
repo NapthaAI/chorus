@@ -526,6 +526,8 @@ interface GitAPI {
   checkout: (path: string, branch: string, isRemote?: boolean) => Promise<ApiResult>
   log: (path: string, count?: number) => Promise<ApiResult<GitCommit[]>>
   logForBranch: (path: string, branch: string, count?: number) => Promise<ApiResult<GitCommit[]>>
+  logForBranchOnly: (path: string, branch: string, baseBranch: string, count?: number) => Promise<ApiResult<GitCommit[]>>
+  getDefaultBranch: (path: string) => Promise<ApiResult<string | null>>
   clone: (url: string, targetDir: string) => Promise<ApiResult>
   cancelClone: () => Promise<ApiResult>
 
@@ -536,7 +538,7 @@ interface GitAPI {
   getDiffBetweenBranches: (path: string, baseBranch: string, targetBranch: string) => Promise<ApiResult<FileDiff[]>>
   merge: (path: string, sourceBranch: string, options?: { squash?: boolean }) => Promise<ApiResult>
   analyzeMerge: (path: string, sourceBranch: string, targetBranch: string) => Promise<ApiResult<MergeAnalysis>>
-  deleteBranch: (path: string, branchName: string, force?: boolean) => Promise<ApiResult>
+  deleteBranch: (path: string, branchName: string, force?: boolean, workspaceId?: string) => Promise<ApiResult>
   branchExists: (path: string, branchName: string) => Promise<ApiResult<boolean>>
   getAgentBranches: (path: string) => Promise<ApiResult<AgentBranchInfo[]>>
   stash: (path: string, message?: string) => Promise<ApiResult>
@@ -578,7 +580,7 @@ interface ConversationAPI {
   list: (workspaceId: string, agentId: string) => Promise<ApiResult<Conversation[]>>
   create: (workspaceId: string, agentId: string) => Promise<ApiResult<Conversation>>
   load: (conversationId: string) => Promise<ApiResult<{ conversation: Conversation | null; messages: ConversationMessage[] }>>
-  delete: (conversationId: string) => Promise<ApiResult>
+  delete: (conversationId: string, repoPath?: string) => Promise<ApiResult>
   updateSettings: (conversationId: string, settings: Partial<ConversationSettings>) => Promise<ApiResult<Conversation>>
 }
 

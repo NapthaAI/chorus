@@ -38,6 +38,8 @@ import {
   getBranch,
   getLog,
   getLogForBranch,
+  getLogForBranchOnly,
+  getDefaultBranch,
   clone,
   cancelClone,
   listBranches,
@@ -74,7 +76,9 @@ import {
   loadConversation,
   deleteConversation,
   updateConversationSettings,
-  ConversationSettings
+  ConversationSettings,
+  getConversationBranchName,
+  deleteConversationsByBranch
 } from './services/conversation-service'
 import {
   sendMessage,
@@ -426,6 +430,24 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('git:log-branch-only', async (_event, path: string, branch: string, baseBranch: string, count = 50) => {
+    try {
+      const result = await getLogForBranchOnly(path, branch, baseBranch, count)
+      return { success: true, data: result }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:get-default-branch', async (_event, path: string) => {
+    try {
+      const result = await getDefaultBranch(path)
+      return { success: true, data: result }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
   ipcMain.handle('git:clone', async (_event, url: string, targetDir: string) => {
     try {
       await clone(url, targetDir, (progress) => {
@@ -524,9 +546,23 @@ app.whenReady().then(() => {
     }
   )
 
-  ipcMain.handle('git:delete-branch', async (_event, path: string, branchName: string, force?: boolean) => {
+  ipcMain.handle('git:delete-branch', async (_event, path: string, branchName: string, force?: boolean, workspaceId?: string) => {
     try {
       await deleteBranch(path, branchName, force)
+
+      // Cascade delete: also delete conversations associated with this branch
+      if (workspaceId && branchName.startsWith('agent/')) {
+        const deletedConversations = deleteConversationsByBranch(workspaceId, branchName)
+        if (deletedConversations.length > 0) {
+          console.log(`[Git] Cascade deleted ${deletedConversations.length} conversation(s) for branch ${branchName}`)
+          // Notify renderer about deleted conversations
+          mainWindow?.webContents.send('conversations:deleted', {
+            conversationIds: deletedConversations,
+            reason: 'branch-deleted'
+          })
+        }
+      }
+
       return { success: true }
     } catch (error) {
       return { success: false, error: String(error) }
@@ -755,9 +791,25 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('conversation:delete', async (_event, conversationId: string) => {
+  ipcMain.handle('conversation:delete', async (_event, conversationId: string, repoPath?: string) => {
     try {
+      // Get the branchName before deleting (for cascade delete)
+      const branchName = getConversationBranchName(conversationId)
+
+      // Delete the conversation
       deleteConversation(conversationId)
+
+      // Cascade delete: also delete the branch if it exists
+      if (branchName && repoPath) {
+        try {
+          await deleteBranch(repoPath, branchName, true)
+          console.log(`[Conversation] Cascade deleted branch ${branchName}`)
+        } catch (err) {
+          // Branch might not exist or might already be deleted - that's okay
+          console.warn(`[Conversation] Could not delete branch ${branchName}:`, err)
+        }
+      }
+
       return { success: true }
     } catch (error) {
       return { success: false, error: String(error) }

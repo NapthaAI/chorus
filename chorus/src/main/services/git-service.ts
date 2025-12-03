@@ -200,6 +200,36 @@ export async function getLogForBranch(
 }
 
 /**
+ * Get commits unique to a branch (commits since it diverged from base)
+ * This is like GitButler - shows only new commits on the branch, not parent commits
+ */
+export async function getLogForBranchOnly(
+  path: string,
+  branch: string,
+  baseBranch: string,
+  count: number = 50
+): Promise<GitCommit[]> {
+  try {
+    // Use two-dot notation: baseBranch..branch shows commits reachable from branch but not from baseBranch
+    const output = runGit(path, `log ${baseBranch}..${branch} -n ${count} --format="%H|%s|%an|%ai"`)
+    if (!output) return []
+
+    const lines = output.split('\n').filter(Boolean)
+    return lines.map((line) => {
+      const [hash, message, author, date] = line.split('|')
+      return {
+        hash,
+        message,
+        author,
+        date
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+/**
  * Clone a repository with progress tracking
  */
 export async function clone(
@@ -342,10 +372,45 @@ export async function checkout(path: string, branch: string, isRemote: boolean =
 // ============================================
 
 /**
+ * Get the default branch name (main or master)
+ * Returns 'main' if it exists, otherwise 'master', or null if neither exists
+ */
+export async function getDefaultBranch(path: string): Promise<string | null> {
+  try {
+    // First check if 'main' exists
+    runGit(path, 'rev-parse --verify main')
+    return 'main'
+  } catch {
+    try {
+      // Fall back to 'master'
+      runGit(path, 'rev-parse --verify master')
+      return 'master'
+    } catch {
+      return null
+    }
+  }
+}
+
+/**
  * Create a new branch from current HEAD
  */
 export async function createBranch(path: string, branchName: string): Promise<void> {
   runGit(path, `checkout -b ${branchName}`)
+}
+
+/**
+ * Create a new branch from a specific base branch
+ * First checks out the base, then creates the new branch
+ */
+export async function createBranchFrom(
+  path: string,
+  branchName: string,
+  baseBranch: string
+): Promise<void> {
+  // Create branch from specific base without checking it out first
+  runGit(path, `branch ${branchName} ${baseBranch}`)
+  // Then checkout the new branch
+  runGit(path, `checkout ${branchName}`)
 }
 
 /**

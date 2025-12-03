@@ -124,6 +124,8 @@ const api = {
     checkout: (path: string, branch: string, isRemote?: boolean) => ipcRenderer.invoke('git:checkout', path, branch, isRemote),
     log: (path: string, count?: number) => ipcRenderer.invoke('git:log', path, count),
     logForBranch: (path: string, branch: string, count?: number) => ipcRenderer.invoke('git:log-branch', path, branch, count),
+    logForBranchOnly: (path: string, branch: string, baseBranch: string, count?: number) => ipcRenderer.invoke('git:log-branch-only', path, branch, baseBranch, count),
+    getDefaultBranch: (path: string) => ipcRenderer.invoke('git:get-default-branch', path),
     clone: (url: string, targetDir: string) => ipcRenderer.invoke('git:clone', url, targetDir),
     cancelClone: () => ipcRenderer.invoke('git:cancel-clone'),
 
@@ -140,8 +142,8 @@ const api = {
       ipcRenderer.invoke('git:merge', path, sourceBranch, options),
     analyzeMerge: (path: string, sourceBranch: string, targetBranch: string) =>
       ipcRenderer.invoke('git:analyze-merge', path, sourceBranch, targetBranch),
-    deleteBranch: (path: string, branchName: string, force?: boolean) =>
-      ipcRenderer.invoke('git:delete-branch', path, branchName, force),
+    deleteBranch: (path: string, branchName: string, force?: boolean, workspaceId?: string) =>
+      ipcRenderer.invoke('git:delete-branch', path, branchName, force, workspaceId),
     branchExists: (path: string, branchName: string) =>
       ipcRenderer.invoke('git:branch-exists', path, branchName),
     getAgentBranches: (path: string) =>
@@ -217,8 +219,8 @@ const api = {
       ipcRenderer.invoke('conversation:create', workspaceId, agentId),
     load: (conversationId: string) =>
       ipcRenderer.invoke('conversation:load', conversationId),
-    delete: (conversationId: string) =>
-      ipcRenderer.invoke('conversation:delete', conversationId),
+    delete: (conversationId: string, repoPath?: string) =>
+      ipcRenderer.invoke('conversation:delete', conversationId, repoPath),
     updateSettings: (conversationId: string, settings: { permissionMode?: string; allowedTools?: string[]; model?: string }) =>
       ipcRenderer.invoke('conversation:update-settings', conversationId, settings)
   },

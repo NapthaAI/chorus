@@ -126,6 +126,7 @@ export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
               <BranchSelector
                 currentBranch={workspace.gitBranch}
                 workspacePath={workspace.path}
+                workspaceId={workspace.id}
                 onBranchChange={handleBranchChange}
               />
               {workspace.isDirty && (

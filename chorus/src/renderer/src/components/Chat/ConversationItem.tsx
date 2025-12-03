@@ -4,6 +4,7 @@ import type { Conversation } from '../../types'
 
 interface ConversationItemProps {
   conversation: Conversation
+  repoPath?: string
 }
 
 // Helper function to get relative time
@@ -37,7 +38,7 @@ const TrashIcon = () => (
   </svg>
 )
 
-export function ConversationItem({ conversation }: ConversationItemProps) {
+export function ConversationItem({ conversation, repoPath }: ConversationItemProps) {
   const { activeConversationId, selectConversation, deleteConversation, getUnreadCount } = useChatStore()
   const [isHovered, setIsHovered] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -56,7 +57,7 @@ export function ConversationItem({ conversation }: ConversationItemProps) {
 
   const handleConfirmDelete = async () => {
     setShowDeleteConfirm(false)
-    await deleteConversation(conversation.id)
+    await deleteConversation(conversation.id, repoPath)
   }
 
   const handleCancelDelete = () => {

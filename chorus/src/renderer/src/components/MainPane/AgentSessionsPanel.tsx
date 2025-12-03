@@ -6,6 +6,7 @@ import { MergePreviewDialog } from '../dialogs/MergePreviewDialog'
 
 interface AgentSessionsPanelProps {
   workspacePath: string
+  workspaceId: string
   onBranchChange: () => void
 }
 
@@ -111,7 +112,7 @@ function DeleteConfirmDialog({ branchName, onConfirm, onCancel }: DeleteConfirmD
   )
 }
 
-export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessionsPanelProps) {
+export function AgentSessionsPanel({ workspacePath, workspaceId, onBranchChange }: AgentSessionsPanelProps) {
   const [branches, setBranches] = useState<AgentBranchInfo[]>([])
   const [expandedBranch, setExpandedBranch] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -285,7 +286,7 @@ export function AgentSessionsPanel({ workspacePath, onBranchChange }: AgentSessi
     setDeleteConfirm(null)
     setActionInProgress(branchName)
 
-    const result = await window.api.git.deleteBranch(workspacePath, branchName, true)
+    const result = await window.api.git.deleteBranch(workspacePath, branchName, true, workspaceId)
     if (result.success) {
       await loadBranches()
     }

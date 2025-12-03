@@ -364,6 +364,7 @@ export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
                   <div className="mb-6">
                     <BranchCommitsGrid
                       workspacePath={workspace.path}
+                      workspaceId={workspace.id}
                       onBranchChange={handleBranchChange}
                       localOnly={true}
                     />
@@ -382,6 +383,7 @@ export function WorkspaceOverview({ workspace }: WorkspaceOverviewProps) {
                 {workspace.gitBranch && (
                   <AgentSessionsPanel
                     workspacePath={workspace.path}
+                    workspaceId={workspace.id}
                     onBranchChange={handleBranchChange}
                   />
                 )}

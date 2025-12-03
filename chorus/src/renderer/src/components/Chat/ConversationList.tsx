@@ -1,4 +1,5 @@
 import { useChatStore } from '../../stores/chat-store'
+import { useWorkspaceStore } from '../../stores/workspace-store'
 import { ConversationItem } from './ConversationItem'
 import type { Conversation } from '../../types'
 
@@ -41,6 +42,8 @@ function groupConversationsByDate(conversations: Conversation[]): Record<string,
 
 export function ConversationList() {
   const { conversations, isLoading } = useChatStore()
+  const { selectedWorkspaceId, workspaces } = useWorkspaceStore()
+  const workspace = workspaces.find(ws => ws.id === selectedWorkspaceId)
 
   if (isLoading) {
     return (
@@ -79,6 +82,7 @@ export function ConversationList() {
             <ConversationItem
               key={conversation.id}
               conversation={conversation}
+              repoPath={workspace?.path}
             />
           ))}
         </div>

@@ -147,8 +147,8 @@ export function AgentConversationsPanel() {
       closeTab(tabToClose.id)
     }
 
-    // Delete the conversation
-    await deleteConversation(deleteConfirm.id)
+    // Delete the conversation (and its associated branch if any)
+    await deleteConversation(deleteConfirm.id, workspace?.path)
     setDeleteConfirm(null)
   }
 

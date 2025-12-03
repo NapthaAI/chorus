@@ -186,6 +186,7 @@ export interface Conversation {
   id: string
   sessionId: string | null
   sessionCreatedAt: string | null  // ISO timestamp when session was created (for expiry tracking)
+  branchName: string | null  // Git branch name associated with this conversation (for auto-branch feature)
   agentId: string
   workspaceId: string
   title: string
@@ -315,6 +316,7 @@ export function createConversation(workspaceId: string, agentId: string): Conver
     id: uuidv4(),
     sessionId: null,
     sessionCreatedAt: null,
+    branchName: null,
     agentId,
     workspaceId,
     title: 'New Conversation',
@@ -380,7 +382,7 @@ export function loadConversation(conversationId: string): { conversation: Conver
  */
 export function updateConversation(
   conversationId: string,
-  updates: Partial<Pick<Conversation, 'title' | 'sessionId' | 'sessionCreatedAt' | 'messageCount' | 'settings'>>
+  updates: Partial<Pick<Conversation, 'title' | 'sessionId' | 'sessionCreatedAt' | 'branchName' | 'messageCount' | 'settings'>>
 ): Conversation | null {
   const location = getConversationPath(conversationId)
   if (!location) {
@@ -400,6 +402,7 @@ export function updateConversation(
   if (updates.title !== undefined) conversation.title = updates.title
   if (updates.sessionId !== undefined) conversation.sessionId = updates.sessionId
   if (updates.sessionCreatedAt !== undefined) conversation.sessionCreatedAt = updates.sessionCreatedAt
+  if (updates.branchName !== undefined) conversation.branchName = updates.branchName
   if (updates.messageCount !== undefined) conversation.messageCount = updates.messageCount
   if (updates.settings !== undefined) conversation.settings = updates.settings
   conversation.updatedAt = new Date().toISOString()
@@ -518,6 +521,57 @@ export function deleteConversation(conversationId: string): boolean {
   }
 
   return true
+}
+
+/**
+ * Get the branchName for a conversation (for cascade delete)
+ */
+export function getConversationBranchName(conversationId: string): string | null {
+  const location = getConversationPath(conversationId)
+  if (!location) {
+    return null
+  }
+
+  const { workspaceId, agentId } = location
+  const index = readConversationsIndex(workspaceId, agentId)
+  const conversation = index.conversations.find(c => c.id === conversationId)
+
+  return conversation?.branchName || null
+}
+
+/**
+ * Find and delete all conversations associated with a git branch
+ * Returns the IDs of deleted conversations
+ */
+export function deleteConversationsByBranch(workspaceId: string, branchName: string): string[] {
+  const deletedIds: string[] = []
+  const chorusDir = getChorusDir()
+  const workspaceSessionsDir = join(chorusDir, 'sessions', workspaceId)
+
+  if (!existsSync(workspaceSessionsDir)) {
+    return deletedIds
+  }
+
+  // Iterate through all agent directories in this workspace
+  try {
+    const agentDirs = readdirSync(workspaceSessionsDir)
+    for (const agentId of agentDirs) {
+      const index = readConversationsIndex(workspaceId, agentId)
+
+      // Find conversations with this branch name
+      const toDelete = index.conversations.filter(c => c.branchName === branchName)
+
+      for (const conversation of toDelete) {
+        if (deleteConversation(conversation.id)) {
+          deletedIds.push(conversation.id)
+        }
+      }
+    }
+  } catch {
+    // Ignore errors reading directories
+  }
+
+  return deletedIds
 }
 
 // ============================================

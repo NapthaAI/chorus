@@ -45,7 +45,8 @@ export function AgentChatPanel() {
     error,
     setError,
     claudePath,
-    isClaudeChecked
+    isClaudeChecked,
+    conversationRefreshKey
   } = useChatStore()
 
   const workspace = workspaces.find((ws) => ws.id === selectedWorkspaceId)
@@ -54,12 +55,12 @@ export function AgentChatPanel() {
   // Only respond to escape if THIS conversation is streaming
   const isThisConversationStreaming = isStreaming && streamingConversationId === activeConversationId
 
-  // Load conversations when agent changes
+  // Load conversations when agent changes or refresh is triggered
   useEffect(() => {
     if (workspace && agent) {
       loadConversations(workspace.id, agent.id)
     }
-  }, [workspace?.id, agent?.id, loadConversations])
+  }, [workspace?.id, agent?.id, loadConversations, conversationRefreshKey])
 
   // Clear chat when unmounting
   useEffect(() => {

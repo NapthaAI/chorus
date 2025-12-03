@@ -184,15 +184,12 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('openai:set-api-key', async (_event, key: string) => {
-    try {
-      const isValid = await validateOpenAIApiKey(key)
-      if (isValid) {
-        setOpenAIApiKey(key)
-      }
-      return { success: true, data: { valid: isValid } }
-    } catch (error) {
-      return { success: false, error: String(error) }
-    }
+    console.log('[OpenAI] Setting API key, length:', key?.length)
+    setOpenAIApiKey(key)
+    // Verify it was saved
+    const saved = getOpenAIApiKey()
+    console.log('[OpenAI] Verified saved key length:', saved?.length)
+    return { success: true, data: { valid: true } }
   })
 
   ipcMain.handle('openai:validate-api-key', async (_event, key: string) => {

@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useChatStore } from '../../stores/chat-store'
-import type { ConversationSettings, PermissionMode, ConversationMessage } from '../../types'
+import { useWorkspaceStore } from '../../stores/workspace-store'
+import type { ConversationSettings, PermissionMode, ConversationMessage, AgentType } from '../../types'
 import {
   calculateContextMetrics,
   getContextLevel,
   getProgressBarColor
 } from '../../utils/context-limits'
+import { getModelsForAgentType } from '../../constants/models'
 
 // Default settings
 const DEFAULT_SETTINGS: ConversationSettings = {
@@ -13,14 +15,6 @@ const DEFAULT_SETTINGS: ConversationSettings = {
   allowedTools: [],
   model: 'default'
 }
-
-// Available models (using aliases that resolve to latest versions)
-const MODELS = [
-  { id: 'default', name: 'Default', description: 'Sonnet 4.5 - Recommended' },
-  { id: 'opus', name: 'Opus', description: 'Opus 4.5 - Most capable' },
-  { id: 'sonnet', name: 'Sonnet (1M)', description: 'Sonnet 4.5 - Long context' },
-  { id: 'haiku', name: 'Haiku', description: 'Haiku 4.5 - Fastest' }
-]
 
 // Permission modes
 const PERMISSION_MODES: { id: PermissionMode; name: string; description: string }[] = [
@@ -150,9 +144,24 @@ interface ConversationToolbarProps {
 
 export function ConversationToolbar({ conversationId, messages }: ConversationToolbarProps) {
   const { conversations, updateConversationSettings } = useChatStore()
+  const { workspaces } = useWorkspaceStore()
   const [notification, setNotification] = useState<string | null>(null)
   const conversation = conversations.find(c => c.id === conversationId)
   const settings = conversation?.settings || DEFAULT_SETTINGS
+
+  // Find the agent type for this conversation
+  const agentType = useMemo((): AgentType | undefined => {
+    if (!conversation) return undefined
+    const workspace = workspaces.find(w => w.id === conversation.workspaceId)
+    const agent = workspace?.agents.find(a => a.id === conversation.agentId)
+    return agent?.type
+  }, [conversation, workspaces])
+
+  // Get models based on agent type
+  const availableModels = useMemo(() => getModelsForAgentType(agentType), [agentType])
+
+  // Whether to show Claude-specific controls (permission mode, tools)
+  const isClaudeAgent = !agentType || agentType === 'claude'
 
   // Show a temporary notification when settings change
   const showSettingsNotification = (isModelChange: boolean) => {
@@ -183,7 +192,7 @@ export function ConversationToolbar({ conversationId, messages }: ConversationTo
     showSettingsNotification(false)
   }
 
-  const selectedModel = MODELS.find(m => m.id === settings.model) || MODELS[0]
+  const selectedModel = availableModels.find(m => m.id === settings.model) || availableModels[0]
   const selectedPermission = PERMISSION_MODES.find(p => p.id === settings.permissionMode) || PERMISSION_MODES[0]
   const enabledToolsCount = settings.allowedTools?.length || 0
 
@@ -196,8 +205,8 @@ export function ConversationToolbar({ conversationId, messages }: ConversationTo
         </div>
       )}
       {/* Model Selector */}
-      <Dropdown label="Model" value={selectedModel.name}>
-        {MODELS.map(model => (
+      <Dropdown label="Model" value={selectedModel?.name || 'Default'}>
+        {availableModels.map(model => (
           <button
             key={model.id}
             onClick={() => handleModelChange(model.id)}
@@ -208,14 +217,14 @@ export function ConversationToolbar({ conversationId, messages }: ConversationTo
             </span>
             <div>
               <div className="text-primary font-medium">{model.name}</div>
-              <div className="text-xs text-muted">{model.description}</div>
+              {model.description && <div className="text-xs text-muted">{model.description}</div>}
             </div>
           </button>
         ))}
       </Dropdown>
 
-      {/* Permission Selector */}
-      <Dropdown label="Permission" value={selectedPermission.name}>
+      {/* Permission Selector - Only for Claude agents */}
+      {isClaudeAgent && <Dropdown label="Permission" value={selectedPermission.name}>
         {PERMISSION_MODES.map(mode => (
           <button
             key={mode.id}
@@ -235,10 +244,10 @@ export function ConversationToolbar({ conversationId, messages }: ConversationTo
             </div>
           </button>
         ))}
-      </Dropdown>
+      </Dropdown>}
 
-      {/* Tools Selector */}
-      <Dropdown label="Tools" value={enabledToolsCount > 0 ? `${enabledToolsCount} enabled` : 'Default'}>
+      {/* Tools Selector - Only for Claude agents */}
+      {isClaudeAgent && <Dropdown label="Tools" value={enabledToolsCount > 0 ? `${enabledToolsCount} enabled` : 'Default'}>
         <div className="px-3 py-2 border-b border-default">
           <div className="text-xs text-muted">
             Select tools to auto-approve. Empty = ask for permission.
@@ -268,7 +277,7 @@ export function ConversationToolbar({ conversationId, messages }: ConversationTo
             Read, Glob, Grep, Task are always available.
           </div>
         </div>
-      </Dropdown>
+      </Dropdown>}
 
       {/* Spacer to push context badge to the right */}
       <div className="flex-1" />

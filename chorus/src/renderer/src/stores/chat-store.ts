@@ -252,6 +252,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
         // Trigger branch refresh since conversation deletion may have cascade-deleted a branch
         useWorkspaceStore.getState().triggerBranchRefresh()
+
+        // Trigger conversation refresh so other components watching this agent's conversations update
+        get().triggerConversationRefresh()
       }
     } catch (error) {
       set({ error: String(error) })
@@ -453,6 +456,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       })
     })
 
+    // Conversations deleted event (from branch cascade deletion)
+    const unsubscribeConversationsDeleted = window.api.conversation.onDeleted((event) => {
+      const { conversations, activeConversationId } = get()
+      const deletedIds = new Set(event.conversationIds)
+      const newConversations = conversations.filter(c => !deletedIds.has(c.id))
+
+      // If active conversation was deleted, select another
+      if (activeConversationId && deletedIds.has(activeConversationId)) {
+        const newActiveId = newConversations[0]?.id || null
+        set({ conversations: newConversations, activeConversationId: newActiveId, messages: [] })
+      } else {
+        set({ conversations: newConversations })
+      }
+    })
+
     // Load chatSidebarCollapsed from settings
     window.api.settings.get().then(result => {
       if (result.success && result.data) {
@@ -473,6 +491,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       unsubscribePermission()
       unsubscribeTodo()
       unsubscribeFileChange()
+      unsubscribeConversationsDeleted()
     }
   },
 

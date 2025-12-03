@@ -70,6 +70,12 @@ interface GitCommitCreatedEvent {
   type: 'turn' | 'stop'
 }
 
+// Conversations deleted event (from branch cascade deletion)
+interface ConversationsDeletedEvent {
+  conversationIds: string[]
+  reason: 'branch-deleted'
+}
+
 // Research-specific events
 interface ResearchSearchEvent {
   conversationId: string
@@ -239,7 +245,13 @@ const api = {
     delete: (conversationId: string, repoPath?: string) =>
       ipcRenderer.invoke('conversation:delete', conversationId, repoPath),
     updateSettings: (conversationId: string, settings: { permissionMode?: string; allowedTools?: string[]; model?: string }) =>
-      ipcRenderer.invoke('conversation:update-settings', conversationId, settings)
+      ipcRenderer.invoke('conversation:update-settings', conversationId, settings),
+    // Event: conversations cascade-deleted when branch was deleted
+    onDeleted: (callback: (event: ConversationsDeletedEvent) => void) => {
+      const handler = (_event: unknown, data: ConversationsDeletedEvent) => callback(data)
+      ipcRenderer.on('conversations:deleted', handler)
+      return () => ipcRenderer.removeListener('conversations:deleted', handler)
+    }
   },
 
   // Agent operations (for Claude CLI/SDK communication)

@@ -14,6 +14,16 @@ const SparkleIcon = () => (
   </svg>
 )
 
+// Search/Research icon for Deep Research agent
+const ResearchIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="6" />
+    <path d="m21 21-4.35-4.35" />
+    <path d="M11 8v6" />
+    <path d="M8 11h6" />
+  </svg>
+)
+
 // Generate a consistent color based on agent name
 function getAvatarColor(name: string): string {
   const colors = [
@@ -78,8 +88,30 @@ export function AgentItem({ agent }: AgentItemProps) {
     }
   }
 
-  const avatarColor = agent.isGeneral ? '#8b5cf6' : getAvatarColor(agent.name)  // Purple for Chorus
+  // Determine avatar color based on agent type
+  const getAgentAvatarColor = (): string => {
+    if (agent.type === 'openai-research') {
+      return '#10b981'  // Green for OpenAI/Research
+    }
+    if (agent.isGeneral) {
+      return '#8b5cf6'  // Purple for Chorus
+    }
+    return getAvatarColor(agent.name)  // Hash-based for custom agents
+  }
+
+  const avatarColor = getAgentAvatarColor()
   const initials = getInitials(agent.name)
+
+  // Get the appropriate icon for the agent type
+  const getAgentIcon = () => {
+    if (agent.type === 'openai-research') {
+      return <ResearchIcon />
+    }
+    if (agent.isGeneral) {
+      return <SparkleIcon />
+    }
+    return initials
+  }
 
   return (
     <div
@@ -88,13 +120,14 @@ export function AgentItem({ agent }: AgentItemProps) {
         ${isSelected ? 'bg-selected' : 'hover:bg-hover'}
       `}
       onClick={handleClick}
+      title={agent.description || agent.name}
     >
       {/* Avatar */}
       <div
         className="relative flex-shrink-0 w-7 h-7 rounded flex items-center justify-center text-white text-xs font-semibold"
         style={{ backgroundColor: avatarColor }}
       >
-        {agent.isGeneral ? <SparkleIcon /> : initials}
+        {getAgentIcon()}
         {/* Status indicator - green=ready, yellow=busy, red=error */}
         <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-sidebar ${
           agentStatus === 'busy' ? 'bg-yellow-500 animate-pulse' :

@@ -435,6 +435,12 @@ interface GitCommitCreatedEvent {
   type: 'turn' | 'stop'
 }
 
+// Conversations deleted event (from branch cascade deletion)
+interface ConversationsDeletedEvent {
+  conversationIds: string[]
+  reason: 'branch-deleted'
+}
+
 // Merge analysis result for preview dialog (E-3)
 interface MergeAnalysis {
   canMerge: boolean
@@ -590,6 +596,8 @@ interface ConversationAPI {
   load: (conversationId: string) => Promise<ApiResult<{ conversation: Conversation | null; messages: ConversationMessage[] }>>
   delete: (conversationId: string, repoPath?: string) => Promise<ApiResult>
   updateSettings: (conversationId: string, settings: Partial<ConversationSettings>) => Promise<ApiResult<Conversation>>
+  // Event: conversations cascade-deleted when branch was deleted
+  onDeleted: (callback: (event: ConversationsDeletedEvent) => void) => () => void
 }
 
 interface AgentAPI {
@@ -691,6 +699,7 @@ export type {
   AgentBranchInfo,
   GitBranchCreatedEvent,
   GitCommitCreatedEvent,
+  ConversationsDeletedEvent,
   MergeAnalysis,
   ApiResult,
   ContentBlock,

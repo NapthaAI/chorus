@@ -1,5 +1,6 @@
 // Re-export types from preload for convenience
 export type {
+  AgentType,
   Agent,
   Workspace,
   Tab,

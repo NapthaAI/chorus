@@ -400,7 +400,8 @@ export function hasWorkspaceSettings(workspaceId: string): boolean {
 // ============================================
 
 export function getOpenAIApiKey(): string | null {
-  return store.get('settings.openaiApiKey', null) as string | null
+  const settings = getSettings()
+  return settings.openaiApiKey || null
 }
 
 export function setOpenAIApiKey(key: string): void {
@@ -409,7 +410,8 @@ export function setOpenAIApiKey(key: string): void {
 }
 
 export function getResearchOutputDirectory(): string {
-  return store.get('settings.researchOutputDirectory', './research') as string
+  const settings = getSettings()
+  return settings.researchOutputDirectory || './research'
 }
 
 export function setResearchOutputDirectory(dir: string): void {

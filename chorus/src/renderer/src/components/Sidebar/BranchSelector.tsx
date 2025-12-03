@@ -75,6 +75,14 @@ export function BranchSelector({ currentBranch, workspacePath, workspaceId, onBr
   const dropdownRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const triggerFileTreeRefresh = useFileTreeStore((state) => state.triggerRefresh)
+  const branchRefreshKey = useWorkspaceStore((state) => state.branchRefreshKey)
+
+  // Reload branches when refresh key changes (triggered by other components deleting branches)
+  useEffect(() => {
+    if (isOpen) {
+      loadBranches()
+    }
+  }, [branchRefreshKey])
 
   // Close dropdown when clicking outside
   useEffect(() => {

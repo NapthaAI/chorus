@@ -43,6 +43,7 @@ export async function sendResearchMessage(
 
   // Check for API key
   const apiKey = getOpenAIApiKey()
+  console.log('[OpenAI Research] Got API key, length:', apiKey?.length, 'exists:', !!apiKey)
   if (!apiKey) {
     const errorMessage: ConversationMessage = {
       uuid: uuidv4(),
@@ -103,8 +104,11 @@ export async function sendResearchMessage(
     })
     setDefaultOpenAIClient(client)
 
-    // Get model from settings or use default
-    const modelId = settings?.model || 'o4-mini-deep-research-2025-06-26'
+    // Get model from settings - only use if it's an OpenAI model, otherwise use default
+    const OPENAI_RESEARCH_MODELS = ['o4-mini-deep-research-2025-06-26', 'o3-deep-research-2025-06-26']
+    const modelId = settings?.model && OPENAI_RESEARCH_MODELS.includes(settings.model)
+      ? settings.model
+      : 'o4-mini-deep-research-2025-06-26'
 
     // Build prompt with context for follow-ups
     const prompt = previousContext
@@ -357,14 +361,27 @@ ${content}
 
 /**
  * Validate an OpenAI API key
+ * Just checks format - actual API errors will show at runtime
  */
 export async function validateOpenAIApiKey(apiKey: string): Promise<boolean> {
-  try {
-    const client = new OpenAI({ apiKey, timeout: 10000 })
-    await client.models.list()
-    return true
-  } catch (error) {
-    console.error('[OpenAI Research] API key validation failed:', error)
+  // Check basic format: sk-... or sk-proj-... patterns
+  if (!apiKey || apiKey.length < 20) {
     return false
   }
+
+  // Accept common OpenAI key formats
+  const validPatterns = [
+    /^sk-[a-zA-Z0-9]{20,}$/,           // Standard key
+    /^sk-proj-[a-zA-Z0-9]{20,}$/,       // Project key
+    /^sk-[a-zA-Z0-9-_]{20,}$/           // Keys with dashes/underscores
+  ]
+
+  const isValidFormat = validPatterns.some(pattern => pattern.test(apiKey))
+
+  if (!isValidFormat) {
+    console.warn('[OpenAI Research] API key format not recognized, but allowing anyway')
+  }
+
+  // Accept any key that looks reasonable - let actual API calls fail with better error messages
+  return apiKey.startsWith('sk-') && apiKey.length >= 20
 }

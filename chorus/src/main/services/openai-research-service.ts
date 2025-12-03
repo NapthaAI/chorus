@@ -18,6 +18,8 @@ import {
   ensureAgentBranch,
   commitAgentChanges
 } from './agent-sdk-service'
+import * as worktreeService from './worktree-service'
+import * as gitService from './git-service'
 
 // ============================================
 // Active Sessions Management
@@ -118,12 +120,31 @@ export async function sendResearchMessage(
   const isFirstMessage = !previousContext
   const effectiveGitSettings = gitSettings || DEFAULT_GIT_SETTINGS
 
-  // Create agent branch for first message (using shared git infrastructure)
-  if (isFirstMessage) {
-    // Use conversationId as sessionId for research (no SDK session concept)
+  // Determine working directory (worktree or main repo)
+  let outputBasePath = repoPath
+  let worktreePath: string | null = null
+
+  // Create worktree for new sessions if worktrees enabled
+  if (isFirstMessage && effectiveGitSettings.autoBranch && effectiveGitSettings.useWorktrees) {
+    const branchName = worktreeService.generateAgentBranchName('deep-research', conversationId.slice(0, 7))
+
+    worktreePath = await worktreeService.ensureConversationWorktree(
+      repoPath,
+      conversationId,
+      branchName,
+      effectiveGitSettings
+    )
+
+    if (worktreePath) {
+      outputBasePath = worktreePath
+      console.log(`[OpenAI Research] Using worktree: ${worktreePath}`)
+      updateConversation(conversationId, { branchName, worktreePath })
+    }
+  } else if (isFirstMessage) {
+    // Legacy mode: create branch in main repo (without worktree)
     const branchName = await ensureAgentBranch(
       conversationId,
-      conversationId, // sessionId - use conversationId for research
+      conversationId,
       'deep-research',
       repoPath,
       mainWindow,
@@ -131,6 +152,19 @@ export async function sendResearchMessage(
     )
     if (branchName) {
       updateConversation(conversationId, { branchName })
+    }
+  } else {
+    // Resuming session - check for existing worktree
+    if (effectiveGitSettings.useWorktrees) {
+      const existingWorktree = worktreeService.getConversationWorktreePath(repoPath, conversationId)
+      const worktrees = await gitService.listWorktrees(repoPath)
+      const hasWorktree = worktrees.some(w => w.path === existingWorktree)
+
+      if (hasWorktree) {
+        outputBasePath = existingWorktree
+        worktreePath = existingWorktree
+        console.log(`[OpenAI Research] Resuming in existing worktree: ${existingWorktree}`)
+      }
     }
   }
 
@@ -243,9 +277,9 @@ Guidelines:
     // Get final output
     const finalOutput = (stream as { finalOutput?: string }).finalOutput || streamingContent
 
-    // Save research output to file
+    // Save research output to file (use worktree path if available)
     const outputDir = getResearchOutputDirectory()
-    const outputPath = await saveResearchOutput(repoPath, outputDir, message, finalOutput)
+    const outputPath = await saveResearchOutput(outputBasePath, outputDir, message, finalOutput)
 
     // Create assistant message with the research output
     const assistantMessage: ConversationMessage = {
@@ -279,7 +313,7 @@ Guidelines:
     const commitMessage = generateResearchCommitMessage(message, outputPath)
     await commitAgentChanges(
       conversationId,
-      repoPath,
+      outputBasePath,  // Use worktree path when available
       commitMessage,
       [outputPath],
       'research',

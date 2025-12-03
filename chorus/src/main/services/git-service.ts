@@ -1043,3 +1043,209 @@ export async function analyzeMerge(
     }
   }
 }
+
+// ============================================================================
+// Worktree Management (Sprint 16)
+// ============================================================================
+
+/**
+ * Worktree information structure
+ */
+export interface WorktreeInfo {
+  path: string // Absolute path to worktree
+  branch: string // Branch checked out (or 'HEAD' if detached)
+  commit: string // Current HEAD commit
+  isMain: boolean // Is this the main working tree?
+  isLocked: boolean // Is worktree locked?
+  prunable: boolean // Can be safely pruned?
+}
+
+/**
+ * List all worktrees for a repository
+ */
+export async function listWorktrees(repoPath: string): Promise<WorktreeInfo[]> {
+  try {
+    const output = runGit(repoPath, 'worktree list --porcelain')
+    return parseWorktreeList(output)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Parse git worktree list --porcelain output
+ */
+function parseWorktreeList(output: string): WorktreeInfo[] {
+  const worktrees: WorktreeInfo[] = []
+  // Split by double newlines (entries are separated by blank lines)
+  const entries = output.split('\n\n').filter(Boolean)
+
+  for (const entry of entries) {
+    const lines = entry.split('\n')
+    const info: Partial<WorktreeInfo> = {
+      isLocked: false,
+      prunable: false,
+      isMain: false
+    }
+
+    for (const line of lines) {
+      if (line.startsWith('worktree ')) {
+        info.path = line.slice(9)
+      } else if (line.startsWith('HEAD ')) {
+        info.commit = line.slice(5)
+      } else if (line.startsWith('branch refs/heads/')) {
+        info.branch = line.slice(18)
+      } else if (line === 'bare') {
+        // Skip bare repos
+        continue
+      } else if (line === 'locked') {
+        info.isLocked = true
+      } else if (line.startsWith('locked ')) {
+        info.isLocked = true
+      } else if (line === 'prunable') {
+        info.prunable = true
+      } else if (line.startsWith('prunable ')) {
+        info.prunable = true
+      } else if (line === 'detached') {
+        info.branch = 'HEAD (detached)'
+      }
+    }
+
+    if (info.path) {
+      worktrees.push({
+        path: info.path,
+        branch: info.branch || 'HEAD',
+        commit: info.commit || '',
+        isMain: worktrees.length === 0, // First entry is main worktree
+        isLocked: info.isLocked || false,
+        prunable: info.prunable || false
+      })
+    }
+  }
+
+  return worktrees
+}
+
+/**
+ * Create a new worktree
+ * @param repoPath - Path to main repository
+ * @param worktreePath - Path where worktree will be created
+ * @param branch - Branch to checkout (created if doesn't exist)
+ * @param baseBranch - Base branch for new branch (optional, defaults to HEAD)
+ */
+export async function createWorktree(
+  repoPath: string,
+  worktreePath: string,
+  branch: string,
+  baseBranch?: string
+): Promise<void> {
+  // Check if branch exists
+  const exists = await branchExists(repoPath, branch)
+
+  if (exists) {
+    // Checkout existing branch in new worktree
+    runGit(repoPath, `worktree add "${worktreePath}" ${branch}`)
+  } else {
+    // Create new branch from base
+    const base = baseBranch || 'HEAD'
+    runGit(repoPath, `worktree add -b ${branch} "${worktreePath}" ${base}`)
+  }
+}
+
+/**
+ * Remove a worktree
+ * @param repoPath - Path to main repository
+ * @param worktreePath - Path to worktree to remove
+ * @param force - Force removal even with uncommitted changes
+ */
+export async function removeWorktree(
+  repoPath: string,
+  worktreePath: string,
+  force: boolean = false
+): Promise<void> {
+  const flag = force ? '--force' : ''
+  runGit(repoPath, `worktree remove ${flag} "${worktreePath}"`)
+}
+
+/**
+ * Prune stale worktree entries
+ * Cleans up metadata for worktrees whose directories were deleted
+ */
+export async function pruneWorktrees(repoPath: string): Promise<void> {
+  runGit(repoPath, 'worktree prune')
+}
+
+/**
+ * Lock a worktree to prevent accidental removal
+ */
+export async function lockWorktree(
+  repoPath: string,
+  worktreePath: string,
+  reason?: string
+): Promise<void> {
+  const reasonArg = reason ? `--reason "${reason}"` : ''
+  runGit(repoPath, `worktree lock ${reasonArg} "${worktreePath}"`)
+}
+
+/**
+ * Unlock a worktree
+ */
+export async function unlockWorktree(repoPath: string, worktreePath: string): Promise<void> {
+  runGit(repoPath, `worktree unlock "${worktreePath}"`)
+}
+
+/**
+ * Check if a path is inside a worktree (not the main repo)
+ */
+export async function isWorktree(path: string): Promise<boolean> {
+  try {
+    const gitDir = runGit(path, 'rev-parse --git-dir')
+    // Main repo: .git is a directory
+    // Worktree: .git is a file pointing to main repo's .git/worktrees/
+    return gitDir.includes('.git/worktrees/')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Get the main repository path from a worktree
+ */
+export async function getMainRepoPath(worktreePath: string): Promise<string> {
+  const gitCommonDir = runGit(worktreePath, 'rev-parse --git-common-dir')
+  // Returns something like /path/to/repo/.git
+  // We want /path/to/repo
+  const { dirname } = await import('path')
+  return dirname(gitCommonDir)
+}
+
+/**
+ * Get worktree status (has uncommitted changes?)
+ */
+export async function getWorktreeStatus(worktreePath: string): Promise<{
+  isDirty: boolean
+  untrackedFiles: number
+  modifiedFiles: number
+  stagedFiles: number
+}> {
+  const status = await getStatus(worktreePath)
+  return {
+    isDirty: status.isDirty,
+    untrackedFiles: status.changes.filter((f) => f.status === '??').length,
+    modifiedFiles: status.changes.filter((f) => f.status === 'M' || f.status === ' M').length,
+    stagedFiles: status.changes.filter(
+      (f) => f.status.startsWith('A') || f.status.startsWith('M')
+    ).length
+  }
+}
+
+/**
+ * Find worktree by conversation ID (checks .chorus-worktrees/{conversationId})
+ */
+export async function findWorktreeByConversationId(
+  repoPath: string,
+  conversationId: string
+): Promise<WorktreeInfo | null> {
+  const worktrees = await listWorktrees(repoPath)
+  return worktrees.find((w) => w.path.endsWith(`/${conversationId}`)) || null
+}

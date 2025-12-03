@@ -247,6 +247,8 @@ interface Conversation {
   id: string
   sessionId: string | null
   sessionCreatedAt: string | null  // ISO timestamp when session was created (for expiry tracking)
+  branchName: string | null        // Git branch name associated with this conversation
+  worktreePath: string | null      // Path to worktree if using worktree isolation (Sprint 16)
   agentId: string
   workspaceId: string
   title: string
@@ -450,6 +452,24 @@ interface MergeAnalysis {
   error?: string
 }
 
+// Worktree information (Sprint 16)
+interface WorktreeInfo {
+  path: string              // Absolute path to worktree
+  branch: string            // Branch checked out (or 'HEAD' if detached)
+  commit: string            // Current HEAD commit
+  isMain: boolean           // Is this the main working tree?
+  isLocked: boolean         // Is worktree locked?
+  prunable: boolean         // Can be safely pruned?
+}
+
+// Worktree status
+interface WorktreeStatus {
+  isDirty: boolean
+  untrackedFiles: number
+  modifiedFiles: number
+  stagedFiles: number
+}
+
 // ============================================
 // Conversation Settings Types
 // ============================================
@@ -471,6 +491,7 @@ interface ConversationSettings {
 interface GitSettings {
   autoBranch: boolean      // Create branch per agent session
   autoCommit: boolean      // Commit per turn
+  useWorktrees: boolean    // Use worktrees for agent isolation (Sprint 16)
 }
 
 // Workspace-level default settings
@@ -588,6 +609,14 @@ interface GitAPI {
   // Git commit events (from agent auto-commits)
   onBranchCreated: (callback: (event: GitBranchCreatedEvent) => void) => () => void
   onCommitCreated: (callback: (event: GitCommitCreatedEvent) => void) => () => void
+
+  // Worktree management (Sprint 16)
+  listWorktrees: (repoPath: string) => Promise<ApiResult<WorktreeInfo[]>>
+  createWorktree: (repoPath: string, worktreePath: string, branch: string, baseBranch?: string) => Promise<ApiResult>
+  removeWorktree: (repoPath: string, worktreePath: string, force?: boolean) => Promise<ApiResult>
+  pruneWorktrees: (repoPath: string) => Promise<ApiResult>
+  getWorktreeStatus: (worktreePath: string) => Promise<ApiResult<WorktreeStatus>>
+  isWorktree: (path: string) => Promise<ApiResult<boolean>>
 }
 
 interface ConversationAPI {

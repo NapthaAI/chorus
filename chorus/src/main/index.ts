@@ -72,7 +72,14 @@ import {
   pull,
   pullRebase,
   fetchAll,
-  analyzeMerge
+  analyzeMerge,
+  // Worktree functions (Sprint 16)
+  listWorktrees,
+  createWorktree,
+  removeWorktree,
+  pruneWorktrees,
+  getWorktreeStatus,
+  isWorktree as isWorktreeFn
 } from './services/git-service'
 import {
   listConversations,
@@ -798,6 +805,70 @@ app.whenReady().then(() => {
     try {
       await fetchAll(path)
       return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  // ============================================
+  // WORKTREE IPC HANDLERS (Sprint 16)
+  // ============================================
+
+  ipcMain.handle('git:list-worktrees', async (_event, repoPath: string) => {
+    try {
+      const worktrees = await listWorktrees(repoPath)
+      return { success: true, data: worktrees }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle(
+    'git:create-worktree',
+    async (_event, repoPath: string, worktreePath: string, branch: string, baseBranch?: string) => {
+      try {
+        await createWorktree(repoPath, worktreePath, branch, baseBranch)
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'git:remove-worktree',
+    async (_event, repoPath: string, worktreePath: string, force?: boolean) => {
+      try {
+        await removeWorktree(repoPath, worktreePath, force)
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    }
+  )
+
+  ipcMain.handle('git:prune-worktrees', async (_event, repoPath: string) => {
+    try {
+      await pruneWorktrees(repoPath)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:get-worktree-status', async (_event, worktreePath: string) => {
+    try {
+      const status = await getWorktreeStatus(worktreePath)
+      return { success: true, data: status }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('git:is-worktree', async (_event, path: string) => {
+    try {
+      const result = await isWorktreeFn(path)
+      return { success: true, data: result }
     } catch (error) {
       return { success: false, error: String(error) }
     }

@@ -4,7 +4,8 @@ import type { PermissionMode, WorkspaceSettings as WorkspaceSettingsType, GitSet
 // Default git settings
 const DEFAULT_GIT_SETTINGS: GitSettings = {
   autoBranch: true,
-  autoCommit: true
+  autoCommit: true,
+  useWorktrees: true
 }
 
 // Default settings
@@ -322,6 +323,29 @@ export function WorkspaceSettings({ workspaceId }: WorkspaceSettingsProps) {
                 <p className="text-primary text-sm font-medium">Auto-commit after each conversation turn</p>
                 <p className="text-xs text-muted mt-0.5">
                   Automatically commits file changes with the prompt as the commit message
+                </p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <button
+                onClick={() => handleGitSettingToggle('useWorktrees')}
+                className={`mt-0.5 w-5 h-5 flex-shrink-0 flex items-center justify-center rounded border transition-colors ${
+                  (settings.git?.useWorktrees ?? DEFAULT_GIT_SETTINGS.useWorktrees)
+                    ? 'bg-accent border-accent text-white'
+                    : 'border-default group-hover:border-secondary'
+                }`}
+              >
+                {(settings.git?.useWorktrees ?? DEFAULT_GIT_SETTINGS.useWorktrees) && <CheckIcon />}
+              </button>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-primary text-sm font-medium">Use worktrees for agent isolation</p>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent font-medium">Recommended</span>
+                </div>
+                <p className="text-xs text-muted mt-0.5">
+                  Each agent conversation gets its own working directory at <code className="text-accent">.chorus-worktrees/</code>.
+                  Enables multiple agents to work on different branches simultaneously without conflicts.
                 </p>
               </div>
             </label>

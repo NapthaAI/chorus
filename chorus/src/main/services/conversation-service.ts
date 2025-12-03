@@ -187,6 +187,7 @@ export interface Conversation {
   sessionId: string | null
   sessionCreatedAt: string | null  // ISO timestamp when session was created (for expiry tracking)
   branchName: string | null  // Git branch name associated with this conversation (for auto-branch feature)
+  worktreePath: string | null  // Path to worktree if using worktree isolation (Sprint 16)
   agentId: string
   workspaceId: string
   title: string
@@ -317,6 +318,7 @@ export function createConversation(workspaceId: string, agentId: string): Conver
     sessionId: null,
     sessionCreatedAt: null,
     branchName: null,
+    worktreePath: null,
     agentId,
     workspaceId,
     title: 'New Conversation',
@@ -382,7 +384,7 @@ export function loadConversation(conversationId: string): { conversation: Conver
  */
 export function updateConversation(
   conversationId: string,
-  updates: Partial<Pick<Conversation, 'title' | 'sessionId' | 'sessionCreatedAt' | 'branchName' | 'messageCount' | 'settings'>>
+  updates: Partial<Pick<Conversation, 'title' | 'sessionId' | 'sessionCreatedAt' | 'branchName' | 'worktreePath' | 'messageCount' | 'settings'>>
 ): Conversation | null {
   const location = getConversationPath(conversationId)
   if (!location) {

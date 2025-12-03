@@ -19,6 +19,7 @@ import {
 } from './conversation-service'
 import { GitSettings, DEFAULT_GIT_SETTINGS } from '../store'
 import * as gitService from './git-service'
+import * as worktreeService from './worktree-service'
 
 // ============================================
 // Active Streams Management
@@ -108,6 +109,14 @@ export function generateAgentBranchName(agentName: string, sessionId: string): s
 /**
  * Ensure agent branch exists and is checked out
  * Exported for use by other agent services (e.g., OpenAI Research)
+ *
+ * When useWorktrees is enabled:
+ * - Branch is created but NOT checked out in main repo
+ * - The worktree will have the branch checked out separately
+ *
+ * When useWorktrees is disabled (legacy mode):
+ * - Branch is created and checked out in main repo
+ * - Original branch is saved for later restoration
  */
 export async function ensureAgentBranch(
   conversationId: string,
@@ -137,6 +146,23 @@ export async function ensureAgentBranch(
 
   const branchName = generateAgentBranchName(agentName, sessionId)
 
+  // If using worktrees, just register the branch name
+  // The worktree will be created with the branch in sendMessageSDK
+  if (gitSettings.useWorktrees) {
+    console.log(`[SDK] Using worktrees - registering branch ${branchName} for conversation`)
+    conversationBranches.set(conversationId, branchName)
+
+    // Notify renderer
+    mainWindow.webContents.send('git:branch-created', {
+      conversationId,
+      branchName,
+      agentName
+    })
+
+    return branchName
+  }
+
+  // Legacy mode: checkout branch in main repo
   try {
     // Save original branch for later restoration
     const currentBranch = await gitService.getBranch(repoPath)
@@ -505,10 +531,53 @@ export async function sendMessageSDK(
   }
 
   try {
+    // Determine working directory (worktree or main repo)
+    let agentCwd = repoPath
+    let worktreePath: string | null = null
+
+    // Create worktree if enabled and auto-branching is on
+    if (effectiveGitSettings.autoBranch && effectiveGitSettings.useWorktrees) {
+      const isNewSession = !effectiveSessionId
+      if (isNewSession) {
+        // Generate branch name for this conversation
+        const branchName = worktreeService.generateAgentBranchName(agentName, conversationId.slice(0, 7))
+
+        // Create or get worktree
+        worktreePath = await worktreeService.ensureConversationWorktree(
+          repoPath,
+          conversationId,
+          branchName,
+          effectiveGitSettings
+        )
+
+        if (worktreePath) {
+          agentCwd = worktreePath
+          console.log(`[SDK] Using worktree: ${worktreePath}`)
+
+          // Update conversation with worktree path
+          updateConversation(conversationId, { worktreePath })
+
+          // Register branch name
+          conversationBranches.set(conversationId, branchName)
+        }
+      } else {
+        // Resuming session - check for existing worktree
+        const existingWorktree = worktreeService.getConversationWorktreePath(repoPath, conversationId)
+        const worktrees = await gitService.listWorktrees(repoPath)
+        const hasWorktree = worktrees.some(w => w.path === existingWorktree)
+
+        if (hasWorktree) {
+          agentCwd = existingWorktree
+          worktreePath = existingWorktree
+          console.log(`[SDK] Resuming in existing worktree: ${existingWorktree}`)
+        }
+      }
+    }
+
     // Build SDK options
     const abortController = new AbortController()
     const options: Parameters<typeof query>[0]['options'] = {
-      cwd: repoPath,
+      cwd: agentCwd,  // Use worktree path if available
       abortController,
       // Enable project and user settings for slash commands
       settingSources: ['project', 'user']

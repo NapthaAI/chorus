@@ -21,6 +21,7 @@ export interface Agent {
 export interface GitSettings {
   autoBranch: boolean      // Create branch per agent session (default: true)
   autoCommit: boolean      // Commit per turn (default: true)
+  useWorktrees: boolean    // Use worktrees for agent isolation (default: true)
 }
 
 export interface WorkspaceSettings {
@@ -349,7 +350,8 @@ export function toggleWorkspaceExpanded(id: string): void {
 
 export const DEFAULT_GIT_SETTINGS: GitSettings = {
   autoBranch: true,
-  autoCommit: true
+  autoCommit: true,
+  useWorktrees: true  // Enable worktrees by default for new installs
 }
 
 const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {

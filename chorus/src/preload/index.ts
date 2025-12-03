@@ -231,7 +231,21 @@ const api = {
       const handler = (_event: unknown, data: GitCommitCreatedEvent) => callback(data)
       ipcRenderer.on('git:commit-created', handler)
       return () => ipcRenderer.removeListener('git:commit-created', handler)
-    }
+    },
+
+    // Worktree management (Sprint 16)
+    listWorktrees: (repoPath: string) =>
+      ipcRenderer.invoke('git:list-worktrees', repoPath),
+    createWorktree: (repoPath: string, worktreePath: string, branch: string, baseBranch?: string) =>
+      ipcRenderer.invoke('git:create-worktree', repoPath, worktreePath, branch, baseBranch),
+    removeWorktree: (repoPath: string, worktreePath: string, force?: boolean) =>
+      ipcRenderer.invoke('git:remove-worktree', repoPath, worktreePath, force),
+    pruneWorktrees: (repoPath: string) =>
+      ipcRenderer.invoke('git:prune-worktrees', repoPath),
+    getWorktreeStatus: (worktreePath: string) =>
+      ipcRenderer.invoke('git:get-worktree-status', worktreePath),
+    isWorktree: (path: string) =>
+      ipcRenderer.invoke('git:is-worktree', path)
   },
 
   // Conversation operations

@@ -534,7 +534,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       tabs: newTabs,
       activeTabId: newActiveTabId,
       selectedFilePath: newActiveTab?.type === 'file' ? newActiveTab.filePath || null : null,
-      selectedWorkspaceId: newActiveTab?.workspaceId || get().selectedWorkspaceId
+      selectedWorkspaceId: newActiveTab?.workspaceId || get().selectedWorkspaceId,
+      // Clear agent/conversation selection unless the new active tab is a chat tab
+      selectedAgentId: newActiveTab?.type === 'chat' ? newActiveTab.agentId || null : null,
+      selectedConversationId: newActiveTab?.type === 'chat' ? newActiveTab.conversationId || null : null
     })
 
     // Also remove from pane groups if split mode is enabled

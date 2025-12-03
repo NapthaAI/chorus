@@ -590,11 +590,63 @@ export async function merge(
 }
 
 /**
- * Delete a branch
+ * Check if a branch is checked out in any worktree (including main repo)
+ * Returns the worktree path if checked out, null otherwise
  */
-export async function deleteBranch(path: string, branchName: string, force?: boolean): Promise<void> {
+export function isBranchCheckedOut(path: string, branchName: string): string | null {
+  try {
+    const output = runGit(path, 'worktree list --porcelain')
+    const worktrees = output.split('\n\n').filter(Boolean)
+
+    for (const worktree of worktrees) {
+      const lines = worktree.split('\n')
+      let worktreePath = ''
+      let branch = ''
+
+      for (const line of lines) {
+        if (line.startsWith('worktree ')) {
+          worktreePath = line.substring(9)
+        } else if (line.startsWith('branch refs/heads/')) {
+          branch = line.substring(18)
+        }
+      }
+
+      if (branch === branchName) {
+        return worktreePath
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Delete a branch
+ * Returns { deleted: boolean, reason?: string } to indicate success or why it was skipped
+ */
+export async function deleteBranch(path: string, branchName: string, force?: boolean): Promise<{ deleted: boolean; reason?: string }> {
+  // Check if branch exists first
+  const exists = await branchExists(path, branchName)
+  if (!exists) {
+    return {
+      deleted: false,
+      reason: `Branch does not exist`
+    }
+  }
+
+  // Check if branch is checked out in any worktree
+  const checkedOutIn = isBranchCheckedOut(path, branchName)
+  if (checkedOutIn) {
+    return {
+      deleted: false,
+      reason: `Branch is checked out in worktree: ${checkedOutIn}`
+    }
+  }
+
   const flag = force ? '-D' : '-d'
   runGit(path, `branch ${flag} ${branchName}`)
+  return { deleted: true }
 }
 
 /**

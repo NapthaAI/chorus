@@ -548,7 +548,11 @@ app.whenReady().then(() => {
 
   ipcMain.handle('git:delete-branch', async (_event, path: string, branchName: string, force?: boolean, workspaceId?: string) => {
     try {
-      await deleteBranch(path, branchName, force)
+      const result = await deleteBranch(path, branchName, force)
+
+      if (!result.deleted) {
+        return { success: false, error: result.reason || 'Could not delete branch' }
+      }
 
       // Cascade delete: also delete conversations associated with this branch
       if (workspaceId && branchName.startsWith('agent/')) {
@@ -801,12 +805,12 @@ app.whenReady().then(() => {
 
       // Cascade delete: also delete the branch if it exists
       if (branchName && repoPath) {
-        try {
-          await deleteBranch(repoPath, branchName, true)
+        const result = await deleteBranch(repoPath, branchName, true)
+        if (result.deleted) {
           console.log(`[Conversation] Cascade deleted branch ${branchName}`)
-        } catch (err) {
-          // Branch might not exist or might already be deleted - that's okay
-          console.warn(`[Conversation] Could not delete branch ${branchName}:`, err)
+        } else {
+          // Branch might be checked out in another worktree - that's okay
+          console.log(`[Conversation] Skipped branch deletion: ${result.reason}`)
         }
       }
 

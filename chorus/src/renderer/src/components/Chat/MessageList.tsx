@@ -1,8 +1,8 @@
-import { useEffect, useRef, useMemo } from 'react'
+import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 import { useChatStore } from '../../stores/chat-store'
 import { MessageBubble } from './MessageBubble'
-import { MarkdownContent } from './MarkdownContent'
 import { ToolCallsGroup } from './ToolCallsGroup'
+import { ResearchProgressGroup } from './ResearchProgressGroup'
 import type { ConversationMessage } from '../../types'
 
 // Tool execution pair
@@ -14,6 +14,7 @@ interface ToolExecution {
 // Grouped message type for rendering
 type GroupedMessage =
   | { type: 'tool_calls_group'; executions: ToolExecution[]; key: string }
+  | { type: 'research_progress_group'; messages: ConversationMessage[]; key: string }
   | { type: 'regular'; message: ConversationMessage; key: string }
 
 // SVG Icons
@@ -29,6 +30,18 @@ export function MessageList() {
   const isThisConversationStreaming = isStreaming && streamingConversationId === activeConversationId
   const scrollRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
+
+  // Track if user is near bottom - only auto-scroll if they are
+  const [isNearBottom, setIsNearBottom] = useState(true)
+
+  // Check scroll position to determine if user is near bottom
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+    // Consider "near bottom" if within 100px of the bottom
+    const nearBottom = scrollHeight - scrollTop - clientHeight < 100
+    setIsNearBottom(nearBottom)
+  }, [])
 
   // Group tool_use messages with their corresponding tool_result, then group consecutive tool executions
   const groupedMessages = useMemo((): GroupedMessage[] => {
@@ -87,44 +100,68 @@ export function MessageList() {
       }
     }
 
-    // Second pass: group consecutive tool executions
+    // Second pass: group consecutive tool executions and research progress
     let currentToolGroup: ToolExecution[] = []
+    let currentResearchProgressGroup: ConversationMessage[] = []
+
+    const flushToolGroup = () => {
+      if (currentToolGroup.length > 0) {
+        result.push({
+          type: 'tool_calls_group',
+          executions: currentToolGroup,
+          key: currentToolGroup[0].toolUse.uuid
+        })
+        currentToolGroup = []
+      }
+    }
+
+    const flushResearchProgressGroup = () => {
+      if (currentResearchProgressGroup.length > 0) {
+        result.push({
+          type: 'research_progress_group',
+          messages: currentResearchProgressGroup,
+          key: currentResearchProgressGroup[0].uuid
+        })
+        currentResearchProgressGroup = []
+      }
+    }
 
     for (const item of pairedMessages) {
       if (item.type === 'tool_execution') {
+        flushResearchProgressGroup()
         currentToolGroup.push(item.exec)
+      } else if (item.message.type === 'research_progress') {
+        flushToolGroup()
+        currentResearchProgressGroup.push(item.message)
       } else {
-        // Flush any pending tool group
-        if (currentToolGroup.length > 0) {
-          result.push({
-            type: 'tool_calls_group',
-            executions: currentToolGroup,
-            key: currentToolGroup[0].toolUse.uuid
-          })
-          currentToolGroup = []
-        }
+        // Flush any pending groups
+        flushToolGroup()
+        flushResearchProgressGroup()
         result.push({ type: 'regular', message: item.message, key: item.message.uuid })
       }
     }
 
-    // Flush remaining tool group
-    if (currentToolGroup.length > 0) {
-      result.push({
-        type: 'tool_calls_group',
-        executions: currentToolGroup,
-        key: currentToolGroup[0].toolUse.uuid
-      })
-    }
+    // Flush remaining groups
+    flushToolGroup()
+    flushResearchProgressGroup()
 
     return result
   }, [messages])
 
-  // Auto-scroll to bottom when new content arrives
+  // Auto-scroll to bottom when new content arrives, but only if user is near bottom
   useEffect(() => {
-    if (endRef.current) {
+    if (isNearBottom && endRef.current) {
       endRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages, streamingContent])
+  }, [messages, streamingContent, isNearBottom])
+
+  // Always scroll to bottom when switching conversations
+  useEffect(() => {
+    if (endRef.current) {
+      endRef.current.scrollIntoView({ behavior: 'instant' })
+    }
+    setIsNearBottom(true)
+  }, [activeConversationId])
 
   if (isLoading) {
     return (
@@ -152,13 +189,21 @@ export function MessageList() {
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+    <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto px-4 py-4 space-y-4">
       {groupedMessages.map((item) => {
         if (item.type === 'tool_calls_group') {
           return (
             <ToolCallsGroup
               key={item.key}
               executions={item.executions}
+            />
+          )
+        }
+        if (item.type === 'research_progress_group') {
+          return (
+            <ResearchProgressGroup
+              key={item.key}
+              messages={item.messages}
             />
           )
         }
@@ -172,8 +217,8 @@ export function MessageList() {
             <SparklesIcon />
           </div>
           <div className="bg-input rounded-lg rounded-tl-none px-4 py-3 max-w-[80%]">
-            <div className="text-sm text-white">
-              <MarkdownContent content={streamingContent} />
+            <div className="text-sm text-white whitespace-pre-wrap">
+              {streamingContent}
               <span className="inline-block w-2 h-4 bg-accent/50 animate-pulse ml-0.5" />
             </div>
           </div>

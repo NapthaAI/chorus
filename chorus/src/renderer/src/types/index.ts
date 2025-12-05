@@ -1,13 +1,19 @@
 // Re-export types from preload for convenience
 export type {
+  AgentType,
   Agent,
   Workspace,
   Tab,
   OpenTabsState,
+  TabGroup,
+  SplitPaneSettings,
   ChorusSettings,
+  EditorFontFamily,
+  EditorFontSize,
   DirectoryEntry,
   GitChange,
   GitStatus,
+  DetailedGitStatus,
   GitCommit,
   GitBranch,
   CloneProgress,
@@ -43,15 +49,26 @@ export type {
   // Todo tracking types
   TodoItem,
   TodoUpdateEvent,
-  FileChange
+  FileChange,
+  // Slash command types
+  SlashCommand,
+  // Git automation types
+  GitSettings,
+  AgentBranchInfo,
+  GitBranchCreatedEvent,
+  GitCommitCreatedEvent,
+  DiffHunk,
+  FileDiff,
+  MergeAnalysis,
+  // Research types
+  ResearchPhase,
+  ResearchSource
 } from '../../../preload/index.d'
 
 // UI-specific types
-export type SidebarTab = 'workspaces' | 'files'
+export type RightPanelTab = 'files' | 'details'
 
-export type MainPaneView = 'welcome' | 'workspace' | 'file' | 'agent'
-
-export type ChatSidebarTab = 'conversations' | 'details'
+export type MainPaneView = 'welcome' | 'workspace' | 'file'
 
 export type AgentStatus = 'ready' | 'busy' | 'error'
 

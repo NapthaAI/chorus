@@ -3,6 +3,9 @@ import { v4 as uuidv4 } from 'uuid'
 import { basename, resolve } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 
+// Agent type - determines which backend service handles the agent
+export type AgentType = 'claude' | 'openai-research'
+
 // Types
 export interface Agent {
   id: string
@@ -10,12 +13,22 @@ export interface Agent {
   filePath: string
   workspaceId: string
   isGeneral?: boolean  // True for auto-created Chorus agent
+  type?: AgentType     // 'claude' (default) or 'openai-research'
+  description?: string // Agent description for display
+}
+
+// Git automation settings
+export interface GitSettings {
+  autoBranch: boolean      // Create branch per agent session (default: true)
+  autoCommit: boolean      // Commit per turn (default: true)
+  useWorktrees: boolean    // Use worktrees for agent isolation (default: true)
 }
 
 export interface WorkspaceSettings {
   defaultPermissionMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
   defaultAllowedTools: string[]
   defaultModel: string
+  git?: GitSettings        // Git automation settings
 }
 
 export interface Workspace {
@@ -45,12 +58,21 @@ export interface OpenTabsState {
   activeTabId: string | null
 }
 
+// Editor font options
+export type EditorFontFamily = 'default' | 'jetbrains-mono' | 'fira-code' | 'sf-mono' | 'consolas'
+export type EditorFontSize = 12 | 13 | 14 | 15 | 16
+
 export interface ChorusSettings {
   rootWorkspaceDir: string
   theme: 'dark' | 'light'
   chatSidebarCollapsed: boolean
   chatSidebarWidth: number
   openTabs?: OpenTabsState
+  editorFontFamily?: EditorFontFamily
+  editorFontSize?: EditorFontSize
+  // OpenAI settings
+  openaiApiKey?: string
+  researchOutputDirectory?: string  // Default: './research'
 }
 
 interface StoreSchema {
@@ -94,7 +116,10 @@ export function initStore(): void {
         rootWorkspaceDir: '',
         theme: 'dark',
         chatSidebarCollapsed: false,
-        chatSidebarWidth: 240
+        chatSidebarWidth: 240,
+        editorFontFamily: 'default',
+        editorFontSize: 14,
+        researchOutputDirectory: './research'
       }
     }
   })
@@ -102,45 +127,54 @@ export function initStore(): void {
   // Log store location for debugging
   console.log('Store location:', store.path)
 
-  // Migration: Add Chorus agent to existing workspaces that don't have one
-  migrateWorkspacesWithChorusAgent()
+  // Migration: Add built-in agents (Chorus, Deep Research) to existing workspaces
+  migrateWorkspacesWithBuiltInAgents()
 }
 
 /**
- * Migration: Ensure all workspaces have a Chorus agent.
- * Runs on every app start but only modifies workspaces lacking a Chorus agent.
+ * Migration: Ensure all workspaces have built-in agents (Chorus and Deep Research).
+ * Runs on every app start but only modifies workspaces lacking these agents.
  */
-function migrateWorkspacesWithChorusAgent(): void {
+function migrateWorkspacesWithBuiltInAgents(): void {
   const workspaces = store.get('workspaces', [])
   let migrated = false
 
   const updatedWorkspaces = workspaces.map((workspace) => {
-    // Check if workspace already has a Chorus agent (isGeneral === true)
-    const hasChorusAgent = workspace.agents.some((a) => a.isGeneral)
+    let agents = [...workspace.agents]
 
+    // Check if workspace already has a Chorus agent
+    const hasChorusAgent = agents.some((a) => a.isGeneral && a.type !== 'openai-research')
     if (!hasChorusAgent) {
       console.log(`Migration: Adding Chorus agent to workspace "${workspace.name}"`)
       migrated = true
-      // Create Chorus agent and prepend to agents array
-      const chorusAgent: Agent = {
-        id: uuidv4(),
-        name: 'Chorus',
-        filePath: '',
-        workspaceId: workspace.id,
-        isGeneral: true
-      }
-      return {
-        ...workspace,
-        agents: [chorusAgent, ...workspace.agents]
-      }
+      agents = [createChorusAgent(workspace.id), ...agents]
     }
 
-    return workspace
+    // Check if workspace already has a Deep Research agent
+    const hasDeepResearchAgent = agents.some((a) => a.type === 'openai-research')
+    if (!hasDeepResearchAgent) {
+      console.log(`Migration: Adding Deep Research agent to workspace "${workspace.name}"`)
+      migrated = true
+      // Insert after Chorus agent (index 1)
+      const chorusIndex = agents.findIndex((a) => a.isGeneral && a.type !== 'openai-research')
+      const insertIndex = chorusIndex >= 0 ? chorusIndex + 1 : 0
+      agents.splice(insertIndex, 0, createDeepResearchAgent(workspace.id))
+    }
+
+    // Ensure existing Chorus agent has type field
+    agents = agents.map((a) => {
+      if (a.isGeneral && !a.type && a.name === 'Chorus') {
+        return { ...a, type: 'claude' as AgentType, description: 'General-purpose coding assistant' }
+      }
+      return a
+    })
+
+    return { ...workspace, agents }
   })
 
   if (migrated) {
     store.set('workspaces', updatedWorkspaces)
-    console.log('Migration: Chorus agent migration complete')
+    console.log('Migration: Built-in agents migration complete')
   }
 }
 
@@ -158,7 +192,25 @@ export function createChorusAgent(workspaceId: string): Agent {
     name: 'Chorus',
     filePath: '',
     workspaceId,
-    isGeneral: true
+    isGeneral: true,
+    type: 'claude',
+    description: 'General-purpose coding assistant'
+  }
+}
+
+/**
+ * Creates a Deep Research agent object for a workspace.
+ * Uses OpenAI's Deep Research models for comprehensive analysis.
+ */
+export function createDeepResearchAgent(workspaceId: string): Agent {
+  return {
+    id: `deep-research-${workspaceId}`, // Stable ID per workspace
+    name: 'Deep Research',
+    filePath: '',
+    workspaceId,
+    isGeneral: true,
+    type: 'openai-research',
+    description: 'OpenAI Deep Research for comprehensive analysis'
   }
 }
 
@@ -196,8 +248,9 @@ export function addWorkspace(
   const name = basename(path)
   const id = uuidv4()
 
-  // Create the Chorus agent (default general-purpose agent)
+  // Create the built-in agents
   const chorusAgent = createChorusAgent(id)
+  const deepResearchAgent = createDeepResearchAgent(id)
 
   // Discovered agents get workspaceId assigned
   const discoveredAgents = info.agents.map((a) => ({ ...a, workspaceId: id }))
@@ -210,8 +263,8 @@ export function addWorkspace(
     gitBranch: info.gitBranch,
     isDirty: info.isDirty,
     hasSystemPrompt: info.hasSystemPrompt,
-    // Chorus agent first, then discovered agents
-    agents: [chorusAgent, ...discoveredAgents]
+    // Built-in agents first (Chorus, Deep Research), then discovered agents
+    agents: [chorusAgent, deepResearchAgent, ...discoveredAgents]
   }
 
   workspaces.push(workspace)
@@ -240,21 +293,30 @@ export function updateWorkspace(
 
   const workspace = workspaces[index]
 
-  // Handle agents update - preserve existing Chorus agent
+  // Handle agents update - preserve existing built-in agents (Chorus, Deep Research)
   let updatedAgents = workspace.agents
   if (updates.agents) {
-    // Find existing Chorus agent (isGeneral === true)
-    const existingChorus = workspace.agents.find((a) => a.isGeneral)
+    // Find existing built-in agents
+    const existingChorus = workspace.agents.find((a) => a.isGeneral && a.type !== 'openai-research')
+    const existingDeepResearch = workspace.agents.find((a) => a.type === 'openai-research')
+
     // Map discovered agents to include workspaceId
     const discoveredAgents = updates.agents.map((a) => ({ ...a, workspaceId: id }))
 
+    // Build agents array with built-in agents first
+    const builtInAgents: Agent[] = []
     if (existingChorus) {
-      // Preserve existing Chorus agent ID
-      updatedAgents = [existingChorus, ...discoveredAgents]
+      builtInAgents.push(existingChorus)
     } else {
-      // No Chorus agent exists (shouldn't happen, but defensive) - create one
-      updatedAgents = [createChorusAgent(id), ...discoveredAgents]
+      builtInAgents.push(createChorusAgent(id))
     }
+    if (existingDeepResearch) {
+      builtInAgents.push(existingDeepResearch)
+    } else {
+      builtInAgents.push(createDeepResearchAgent(id))
+    }
+
+    updatedAgents = [...builtInAgents, ...discoveredAgents]
   }
 
   // Build the updated workspace
@@ -286,10 +348,17 @@ export function toggleWorkspaceExpanded(id: string): void {
 // WORKSPACE SETTINGS OPERATIONS
 // ============================================
 
+export const DEFAULT_GIT_SETTINGS: GitSettings = {
+  autoBranch: true,
+  autoCommit: true,
+  useWorktrees: true  // Enable worktrees by default for new installs
+}
+
 const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   defaultPermissionMode: 'default',
   defaultAllowedTools: [],
-  defaultModel: 'default'
+  defaultModel: 'default',
+  git: DEFAULT_GIT_SETTINGS
 }
 
 export function getWorkspaceSettings(workspaceId: string): WorkspaceSettings {
@@ -326,4 +395,28 @@ export function hasWorkspaceSettings(workspaceId: string): boolean {
   const workspaces = getWorkspaces()
   const workspace = workspaces.find((ws) => ws.id === workspaceId)
   return !!workspace?.settings
+}
+
+// ============================================
+// OPENAI SETTINGS OPERATIONS
+// ============================================
+
+export function getOpenAIApiKey(): string | null {
+  const settings = getSettings()
+  return settings.openaiApiKey || null
+}
+
+export function setOpenAIApiKey(key: string): void {
+  const settings = getSettings()
+  store.set('settings', { ...settings, openaiApiKey: key })
+}
+
+export function getResearchOutputDirectory(): string {
+  const settings = getSettings()
+  return settings.researchOutputDirectory || './research'
+}
+
+export function setResearchOutputDirectory(dir: string): void {
+  const settings = getSettings()
+  store.set('settings', { ...settings, researchOutputDirectory: dir })
 }

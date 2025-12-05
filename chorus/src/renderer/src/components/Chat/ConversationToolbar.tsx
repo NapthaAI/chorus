@@ -1,6 +1,13 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useChatStore } from '../../stores/chat-store'
-import type { ConversationSettings, PermissionMode } from '../../types'
+import { useWorkspaceStore } from '../../stores/workspace-store'
+import type { ConversationSettings, PermissionMode, ConversationMessage, AgentType } from '../../types'
+import {
+  calculateContextMetrics,
+  getContextLevel,
+  getProgressBarColor
+} from '../../utils/context-limits'
+import { getModelsForAgentType } from '../../constants/models'
 
 // Default settings
 const DEFAULT_SETTINGS: ConversationSettings = {
@@ -8,14 +15,6 @@ const DEFAULT_SETTINGS: ConversationSettings = {
   allowedTools: [],
   model: 'default'
 }
-
-// Available models (using aliases that resolve to latest versions)
-const MODELS = [
-  { id: 'default', name: 'Default', description: 'Sonnet 4.5 - Recommended' },
-  { id: 'opus', name: 'Opus', description: 'Opus 4.5 - Most capable' },
-  { id: 'sonnet', name: 'Sonnet (1M)', description: 'Sonnet 4.5 - Long context' },
-  { id: 'haiku', name: 'Haiku', description: 'Haiku 4.5 - Fastest' }
-]
 
 // Permission modes
 const PERMISSION_MODES: { id: PermissionMode; name: string; description: string }[] = [
@@ -47,6 +46,57 @@ const CheckIcon = () => (
     <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" />
   </svg>
 )
+
+const WarningIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+)
+
+// Context Progress Bar Component
+interface ContextBadgeProps {
+  messages: ConversationMessage[]
+}
+
+function ContextBadge({ messages }: ContextBadgeProps) {
+  const metrics = useMemo(
+    () => calculateContextMetrics(messages),
+    [messages]
+  )
+
+  const level = getContextLevel(metrics.contextPercentage)
+  const progressColor = getProgressBarColor(level)
+  const showWarning = level === 'high' || level === 'critical'
+
+  // Don't show if no tokens yet
+  if (metrics.contextUsed === 0) {
+    return null
+  }
+
+  const tooltip =
+    `Context: ${metrics.contextUsed.toLocaleString()} / ${metrics.contextLimit.toLocaleString()} tokens\n` +
+    `Input: ${metrics.inputTokens.toLocaleString()} uncached + ${metrics.cacheReadTokens.toLocaleString()} cached\n` +
+    `Output: ${metrics.outputTokens.toLocaleString()} (not counted in context)`
+
+  return (
+    <div
+      className="flex items-center gap-2 px-2 py-1"
+      title={tooltip}
+    >
+      {showWarning && <WarningIcon />}
+      <span className="text-xs text-muted whitespace-nowrap">Context</span>
+      <div className="w-20 h-2 bg-hover rounded-full overflow-hidden">
+        <div
+          className={`h-full ${progressColor} transition-all duration-300`}
+          style={{ width: `${Math.min(metrics.contextPercentage, 100)}%` }}
+        />
+      </div>
+      <span className="text-xs text-muted w-8">{Math.round(metrics.contextPercentage)}%</span>
+    </div>
+  )
+}
 
 interface DropdownProps {
   label: string
@@ -89,13 +139,29 @@ function Dropdown({ label, value, children }: DropdownProps) {
 
 interface ConversationToolbarProps {
   conversationId: string
+  messages: ConversationMessage[]
 }
 
-export function ConversationToolbar({ conversationId }: ConversationToolbarProps) {
+export function ConversationToolbar({ conversationId, messages }: ConversationToolbarProps) {
   const { conversations, updateConversationSettings } = useChatStore()
+  const { workspaces } = useWorkspaceStore()
   const [notification, setNotification] = useState<string | null>(null)
   const conversation = conversations.find(c => c.id === conversationId)
   const settings = conversation?.settings || DEFAULT_SETTINGS
+
+  // Find the agent type for this conversation
+  const agentType = useMemo((): AgentType | undefined => {
+    if (!conversation) return undefined
+    const workspace = workspaces.find(w => w.id === conversation.workspaceId)
+    const agent = workspace?.agents.find(a => a.id === conversation.agentId)
+    return agent?.type
+  }, [conversation, workspaces])
+
+  // Get models based on agent type
+  const availableModels = useMemo(() => getModelsForAgentType(agentType), [agentType])
+
+  // Whether to show Claude-specific controls (permission mode, tools)
+  const isClaudeAgent = !agentType || agentType === 'claude'
 
   // Show a temporary notification when settings change
   const showSettingsNotification = (isModelChange: boolean) => {
@@ -126,7 +192,7 @@ export function ConversationToolbar({ conversationId }: ConversationToolbarProps
     showSettingsNotification(false)
   }
 
-  const selectedModel = MODELS.find(m => m.id === settings.model) || MODELS[0]
+  const selectedModel = availableModels.find(m => m.id === settings.model) || availableModels[0]
   const selectedPermission = PERMISSION_MODES.find(p => p.id === settings.permissionMode) || PERMISSION_MODES[0]
   const enabledToolsCount = settings.allowedTools?.length || 0
 
@@ -139,8 +205,8 @@ export function ConversationToolbar({ conversationId }: ConversationToolbarProps
         </div>
       )}
       {/* Model Selector */}
-      <Dropdown label="Model" value={selectedModel.name}>
-        {MODELS.map(model => (
+      <Dropdown label="Model" value={selectedModel?.name || 'Default'}>
+        {availableModels.map(model => (
           <button
             key={model.id}
             onClick={() => handleModelChange(model.id)}
@@ -151,14 +217,14 @@ export function ConversationToolbar({ conversationId }: ConversationToolbarProps
             </span>
             <div>
               <div className="text-primary font-medium">{model.name}</div>
-              <div className="text-xs text-muted">{model.description}</div>
+              {model.description && <div className="text-xs text-muted">{model.description}</div>}
             </div>
           </button>
         ))}
       </Dropdown>
 
-      {/* Permission Selector */}
-      <Dropdown label="Permission" value={selectedPermission.name}>
+      {/* Permission Selector - Only for Claude agents */}
+      {isClaudeAgent && <Dropdown label="Permission" value={selectedPermission.name}>
         {PERMISSION_MODES.map(mode => (
           <button
             key={mode.id}
@@ -178,10 +244,10 @@ export function ConversationToolbar({ conversationId }: ConversationToolbarProps
             </div>
           </button>
         ))}
-      </Dropdown>
+      </Dropdown>}
 
-      {/* Tools Selector */}
-      <Dropdown label="Tools" value={enabledToolsCount > 0 ? `${enabledToolsCount} enabled` : 'Default'}>
+      {/* Tools Selector - Only for Claude agents */}
+      {isClaudeAgent && <Dropdown label="Tools" value={enabledToolsCount > 0 ? `${enabledToolsCount} enabled` : 'Default'}>
         <div className="px-3 py-2 border-b border-default">
           <div className="text-xs text-muted">
             Select tools to auto-approve. Empty = ask for permission.
@@ -211,7 +277,13 @@ export function ConversationToolbar({ conversationId }: ConversationToolbarProps
             Read, Glob, Grep, Task are always available.
           </div>
         </div>
-      </Dropdown>
+      </Dropdown>}
+
+      {/* Spacer to push context badge to the right */}
+      <div className="flex-1" />
+
+      {/* Context Badge */}
+      <ContextBadge messages={messages} />
     </div>
   )
 }

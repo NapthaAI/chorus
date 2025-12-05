@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import type { MentionFilter } from '../../hooks/useMentionTrigger'
 
 interface WalkEntry {
   name: string
@@ -7,12 +8,30 @@ interface WalkEntry {
   relativePath: string
 }
 
+interface ChangedWalkEntry extends WalkEntry {
+  status?: 'M' | 'A' | 'D' | '?'
+}
+
+interface MentionSections {
+  changed?: ChangedWalkEntry[]
+  recent?: WalkEntry[]
+  filtered: WalkEntry[]
+}
+
 interface MentionDropdownProps {
-  items: WalkEntry[]
+  items?: WalkEntry[]  // Legacy flat list (deprecated, use sections)
+  sections?: MentionSections  // New sectioned format
   selectedIndex: number
   position: { top: number; left: number }
   onSelect: (item: WalkEntry) => void
   onClose: () => void
+  selectedPaths?: Set<string>  // Paths of files already selected (multi-select)
+  filter?: MentionFilter | null  // Active filter
+  onClearFilter?: () => void  // Callback to clear filter
+  // Directory navigation
+  expandedPaths?: Set<string>  // Set of expanded folder paths
+  onToggleExpand?: (path: string) => void  // Toggle folder expansion
+  getChildren?: (folderPath: string) => WalkEntry[]  // Get children of folder
 }
 
 // File icon based on extension
@@ -107,12 +126,108 @@ function FolderIcon() {
   )
 }
 
+// Checkmark icon for selected items
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-accent">
+      <path
+        d="M20 6L9 17l-5-5"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// Status badge for git changes
+function StatusBadge({ status }: { status: 'M' | 'A' | 'D' | '?' }) {
+  const colors = {
+    M: 'text-yellow-400',  // Modified
+    A: 'text-green-400',   // Added
+    D: 'text-red-400',     // Deleted
+    '?': 'text-gray-400'   // Untracked
+  }
+
+  return (
+    <span className={`text-xs font-mono font-bold ${colors[status]}`}>
+      {status}
+    </span>
+  )
+}
+
+// Section header
+function SectionHeader({ title, count }: { title: string; count: number }) {
+  return (
+    <div className="px-3 py-1.5 text-xs font-medium text-muted uppercase tracking-wide border-b border-default/50">
+      {title} ({count})
+    </div>
+  )
+}
+
+// Filter badge component
+function FilterBadge({ filter, onClear }: { filter: MentionFilter; onClear?: () => void }) {
+  const label = filter.type === 'extension'
+    ? `${filter.value}:`
+    : filter.type === 'semantic'
+      ? `${filter.value}:`
+      : filter.value
+
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/10 border-b border-default/50">
+      <span className="text-xs text-accent font-medium">
+        Filtering: @{label}
+      </span>
+      {onClear && (
+        <button
+          className="text-muted hover:text-primary transition-colors"
+          onClick={(e) => {
+            e.stopPropagation()
+            onClear()
+          }}
+          title="Clear filter"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Chevron icons for folder expand/collapse
+function ChevronRight() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-muted">
+      <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ChevronDown() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-muted">
+      <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 export function MentionDropdown({
   items,
+  sections,
   selectedIndex,
   position,
   onSelect,
-  onClose
+  onClose,
+  selectedPaths,
+  filter,
+  onClearFilter,
+  expandedPaths,
+  onToggleExpand,
+  getChildren
 }: MentionDropdownProps) {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const selectedItemRef = useRef<HTMLButtonElement>(null)
@@ -134,18 +249,167 @@ export function MentionDropdown({
     selectedItemRef.current?.scrollIntoView({ block: 'nearest' })
   }, [selectedIndex])
 
-  if (items.length === 0) {
+  // Build flat list for index calculation
+  // Order: changed → recent → filtered
+  const flatItems: Array<ChangedWalkEntry | WalkEntry> = []
+  if (sections) {
+    if (sections.changed?.length) flatItems.push(...sections.changed)
+    if (sections.recent?.length) flatItems.push(...sections.recent)
+    flatItems.push(...sections.filtered)
+  } else if (items) {
+    flatItems.push(...items)
+  }
+
+  // Track index globally for expanded items
+  let globalIndex = 0
+
+  // Render a single item with optional depth for tree view
+  const renderItem = (
+    item: ChangedWalkEntry | WalkEntry,
+    index: number,
+    showStatus: boolean = false,
+    depth: number = 0
+  ) => {
+    const isSelected = selectedPaths?.has(item.path)
+    const status = showStatus && 'status' in item ? item.status : undefined
+    const isExpanded = expandedPaths?.has(item.relativePath)
+    const hasExpansion = item.isDirectory && onToggleExpand && getChildren
+
     return (
-      <div
-        ref={dropdownRef}
-        className="fixed z-50 bg-sidebar border border-default rounded-lg shadow-lg py-2 px-3 w-80"
-        style={{ top: position.top, left: position.left }}
-      >
-        <span className="text-muted text-sm">No files found</span>
+      <div key={item.path}>
+        <button
+          ref={index === selectedIndex ? selectedItemRef : null}
+          className={`w-full flex items-center gap-2 py-1.5 text-left text-sm transition-colors ${
+            index === selectedIndex ? 'bg-hover' : 'hover:bg-hover/50'
+          } ${isSelected ? 'bg-accent/10' : ''}`}
+          style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: '12px' }}
+          onClick={() => onSelect(item)}
+          role="option"
+          aria-selected={index === selectedIndex}
+          id={`mention-option-${index}`}
+        >
+          {/* Expand/collapse chevron for directories */}
+          {hasExpansion ? (
+            <span
+              className="flex-shrink-0 w-4 cursor-pointer hover:text-primary"
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleExpand(item.relativePath)
+              }}
+            >
+              {isExpanded ? <ChevronDown /> : <ChevronRight />}
+            </span>
+          ) : (
+            <span className="flex-shrink-0 w-4">
+              {isSelected && <CheckIcon />}
+            </span>
+          )}
+          {/* Git status badge */}
+          {status && (
+            <span className="flex-shrink-0 w-4">
+              <StatusBadge status={status} />
+            </span>
+          )}
+          <span className="flex-shrink-0">
+            {item.isDirectory ? <FolderIcon /> : <FileIcon name={item.name} />}
+          </span>
+          <span className="truncate text-secondary">
+            <span className="text-primary">{item.name}</span>
+            {depth === 0 && item.relativePath !== item.name && (
+              <span className="text-muted ml-1 text-xs">
+                {item.relativePath.slice(0, -item.name.length - 1)}
+              </span>
+            )}
+          </span>
+          {/* Checkmark for selected files (shown at end when directory has chevron) */}
+          {hasExpansion && isSelected && (
+            <span className="flex-shrink-0 ml-auto">
+              <CheckIcon />
+            </span>
+          )}
+        </button>
+        {/* Render children if expanded */}
+        {isExpanded && getChildren && (
+          <div>
+            {getChildren(item.relativePath).map((child) => {
+              globalIndex++
+              return renderItem(child, globalIndex, false, depth + 1)
+            })}
+          </div>
+        )}
       </div>
     )
   }
 
+  if (flatItems.length === 0) {
+    return (
+      <div
+        ref={dropdownRef}
+        className="fixed z-50 bg-sidebar border border-default rounded-lg shadow-lg w-80"
+        style={{ top: position.top, left: position.left, transform: 'translateY(-100%)' }}
+      >
+        {/* Filter badge if active */}
+        {filter && <FilterBadge filter={filter} onClear={onClearFilter} />}
+        <div className="py-2 px-3">
+          <span className="text-muted text-sm">No files found</span>
+        </div>
+      </div>
+    )
+  }
+
+  // If sections are provided, render with headers
+  if (sections) {
+    let currentIndex = 0
+
+    return (
+      <div
+        ref={dropdownRef}
+        className="fixed z-50 bg-sidebar border border-default rounded-lg shadow-lg w-80 max-h-96 overflow-y-auto"
+        style={{ top: position.top, left: position.left, transform: 'translateY(-100%)' }}
+        role="listbox"
+      >
+        {/* Filter badge if active */}
+        {filter && <FilterBadge filter={filter} onClear={onClearFilter} />}
+
+        {/* Changed section */}
+        {sections.changed && sections.changed.length > 0 && (
+          <>
+            <SectionHeader title="Changed" count={sections.changed.length} />
+            {sections.changed.map((item) => {
+              const idx = currentIndex++
+              return renderItem(item, idx, true)
+            })}
+          </>
+        )}
+
+        {/* Recent section */}
+        {sections.recent && sections.recent.length > 0 && (
+          <>
+            <SectionHeader title="Recent" count={sections.recent.length} />
+            {sections.recent.map((item) => {
+              const idx = currentIndex++
+              return renderItem(item, idx)
+            })}
+          </>
+        )}
+
+        {/* Filtered/All Files section */}
+        {sections.filtered.length > 0 && (
+          <>
+            {(sections.changed?.length || sections.recent?.length) ? (
+              <SectionHeader title="All Files" count={sections.filtered.length} />
+            ) : null}
+            {sections.filtered.map((item) => {
+              const idx = currentIndex++
+              return renderItem(item, idx)
+            })}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // Legacy flat list rendering
   return (
     <div
       ref={dropdownRef}
@@ -153,31 +417,10 @@ export function MentionDropdown({
       style={{ top: position.top, left: position.left }}
       role="listbox"
     >
-      {items.map((item, index) => (
-        <button
-          key={item.path}
-          ref={index === selectedIndex ? selectedItemRef : null}
-          className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
-            index === selectedIndex ? 'bg-hover' : 'hover:bg-hover/50'
-          }`}
-          onClick={() => onSelect(item)}
-          role="option"
-          aria-selected={index === selectedIndex}
-          id={`mention-option-${index}`}
-        >
-          <span className="flex-shrink-0">
-            {item.isDirectory ? <FolderIcon /> : <FileIcon name={item.name} />}
-          </span>
-          <span className="truncate text-secondary">
-            <span className="text-primary">{item.name}</span>
-            {item.relativePath !== item.name && (
-              <span className="text-muted ml-1 text-xs">
-                {item.relativePath.slice(0, -item.name.length - 1)}
-              </span>
-            )}
-          </span>
-        </button>
-      ))}
+      {flatItems.map((item, index) => renderItem(item, index))}
     </div>
   )
 }
+
+// Export types for use in other components
+export type { WalkEntry, ChangedWalkEntry, MentionSections }

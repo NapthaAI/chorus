@@ -2,13 +2,13 @@ import { create } from 'zustand'
 import type {
   Conversation,
   ConversationMessage,
-  ChatSidebarTab,
   AgentStatus,
   ConversationSettings,
   PermissionRequestEvent,
   TodoItem,
   FileChange
 } from '../types'
+import { useWorkspaceStore } from './workspace-store'
 
 interface ChatStore {
   // State
@@ -22,7 +22,6 @@ interface ChatStore {
   agentStatus: AgentStatus
   agentStatuses: Map<string, AgentStatus>  // Per-agent status tracking
   chatSidebarCollapsed: boolean
-  chatSidebarTab: ChatSidebarTab
   error: string | null
   claudePath: string | null
   isClaudeChecked: boolean
@@ -35,18 +34,20 @@ interface ChatStore {
   conversationTodos: Map<string, TodoItem[]>
   conversationFiles: Map<string, FileChange[]>
 
+  // Refresh key for cross-component coordination
+  conversationRefreshKey: number
+
   // Actions
   loadConversations: (workspaceId: string, agentId: string) => Promise<void>
   selectConversation: (conversationId: string | null) => Promise<void>
   createConversation: (workspaceId: string, agentId: string) => Promise<string | null>
-  deleteConversation: (conversationId: string) => Promise<void>
+  deleteConversation: (conversationId: string, repoPath?: string) => Promise<void>
   sendMessage: (content: string, workspaceId: string, agentId: string, repoPath: string, agentFilePath?: string) => Promise<void>
   appendStreamDelta: (delta: string) => void
   appendMessage: (message: ConversationMessage) => void
   setAgentStatus: (status: AgentStatus) => void
   stopAgent: (agentId: string) => Promise<void>
   setChatSidebarCollapsed: (collapsed: boolean) => void
-  setChatSidebarTab: (tab: ChatSidebarTab) => void
   initEventListeners: () => () => void
   clearChat: () => void
   setError: (error: string | null) => void
@@ -68,6 +69,9 @@ interface ChatStore {
   addFileChange: (conversationId: string, change: FileChange) => void
   getTodos: (conversationId: string) => TodoItem[]
   getFileChanges: (conversationId: string) => FileChange[]
+
+  // Refresh actions
+  triggerConversationRefresh: () => void
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -82,7 +86,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   agentStatus: 'ready',
   agentStatuses: new Map<string, AgentStatus>(),
   chatSidebarCollapsed: false,
-  chatSidebarTab: 'conversations',
   error: null,
   claudePath: null,
   isClaudeChecked: false,
@@ -94,6 +97,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   // Details panel state
   conversationTodos: new Map<string, TodoItem[]>(),
   conversationFiles: new Map<string, FileChange[]>(),
+
+  // Refresh key
+  conversationRefreshKey: 0,
 
   // Load conversations for a workspace/agent
   loadConversations: async (workspaceId: string, agentId: string) => {
@@ -227,10 +233,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  // Delete a conversation
-  deleteConversation: async (conversationId: string) => {
+  // Delete a conversation (and optionally its associated branch)
+  deleteConversation: async (conversationId: string, repoPath?: string) => {
     try {
-      const result = await window.api.conversation.delete(conversationId)
+      const result = await window.api.conversation.delete(conversationId, repoPath)
       if (result.success) {
         const { conversations, activeConversationId } = get()
         const newConversations = conversations.filter(c => c.id !== conversationId)
@@ -243,6 +249,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         if (newActiveId !== activeConversationId) {
           await get().selectConversation(newActiveId)
         }
+
+        // Trigger branch refresh since conversation deletion may have cascade-deleted a branch
+        useWorkspaceStore.getState().triggerBranchRefresh()
+
+        // Trigger conversation refresh so other components watching this agent's conversations update
+        get().triggerConversationRefresh()
       }
     } catch (error) {
       set({ error: String(error) })
@@ -287,6 +299,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   // Append a complete message
   appendMessage: (message: ConversationMessage) => {
     const { messages, conversations, activeConversationId } = get()
+
+    // Check for duplicate by UUID to prevent double-adding messages
+    // This can happen due to race conditions between IPC events and conversation loading
+    if (messages.some(m => m.uuid === message.uuid)) {
+      return // Message already exists, skip
+    }
 
     // Update messages
     set({ messages: [...messages, message] })
@@ -349,11 +367,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     window.api.settings.set({ chatSidebarCollapsed: collapsed }).catch(() => {})
   },
 
-  // Set chat sidebar tab
-  setChatSidebarTab: (tab: ChatSidebarTab) => {
-    set({ chatSidebarTab: tab })
-  },
-
   // Initialize event listeners for agent communication
   initEventListeners: () => {
     // Stream delta listener
@@ -361,6 +374,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const { activeConversationId } = get()
       if (event.conversationId === activeConversationId) {
         get().appendStreamDelta(event.delta)
+      }
+    })
+
+    // Stream clear listener - clears streaming content when text is flushed to a message
+    const unsubscribeStreamClear = window.api.agent.onStreamClear((event) => {
+      const { activeConversationId } = get()
+      if (event.conversationId === activeConversationId) {
+        set({ streamingContent: '' })
       }
     })
 
@@ -435,6 +456,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       })
     })
 
+    // Conversations deleted event (from branch cascade deletion)
+    const unsubscribeConversationsDeleted = window.api.conversation.onDeleted((event) => {
+      const { conversations, activeConversationId } = get()
+      const deletedIds = new Set(event.conversationIds)
+      const newConversations = conversations.filter(c => !deletedIds.has(c.id))
+
+      // If active conversation was deleted, select another
+      if (activeConversationId && deletedIds.has(activeConversationId)) {
+        const newActiveId = newConversations[0]?.id || null
+        set({ conversations: newConversations, activeConversationId: newActiveId, messages: [] })
+      } else {
+        set({ conversations: newConversations })
+      }
+    })
+
     // Load chatSidebarCollapsed from settings
     window.api.settings.get().then(result => {
       if (result.success && result.data) {
@@ -448,12 +484,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     // Return cleanup function
     return () => {
       unsubscribeDelta()
+      unsubscribeStreamClear()
       unsubscribeMessage()
       unsubscribeStatus()
       unsubscribeSessionUpdate()
       unsubscribePermission()
       unsubscribeTodo()
       unsubscribeFileChange()
+      unsubscribeConversationsDeleted()
     }
   },
 
@@ -631,5 +669,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   // Get file changes for a conversation
   getFileChanges: (conversationId: string) => {
     return get().conversationFiles.get(conversationId) || []
+  },
+
+  // Trigger conversation refresh across all components watching conversationRefreshKey
+  triggerConversationRefresh: () => {
+    set({ conversationRefreshKey: get().conversationRefreshKey + 1 })
   }
 }))

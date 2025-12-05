@@ -1,7 +1,8 @@
-import { query, type Query } from '@anthropic-ai/claude-agent-sdk'
+import { query, type Query, type SDKPartialAssistantMessage } from '@anthropic-ai/claude-agent-sdk'
 import { BrowserWindow } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import { existsSync, readFileSync } from 'fs'
+import * as path from 'path'
 import {
   appendMessage,
   updateConversation,
@@ -17,6 +18,9 @@ import {
   ToolUseBlock,
   ToolResultBlock
 } from './conversation-service'
+import { GitSettings, DEFAULT_GIT_SETTINGS } from '../store'
+import * as gitService from './git-service'
+import * as worktreeService from './worktree-service'
 
 // ============================================
 // Active Streams Management
@@ -79,6 +83,418 @@ function cancelPendingPermissions(conversationId: string): void {
 }
 
 // ============================================
+// Path Validation (Security)
+// ============================================
+
+// Tools that operate on file paths and need validation
+const FILE_PATH_TOOLS = ['Read', 'Write', 'Edit', 'MultiEdit']
+
+/**
+ * Check if a file path is within the allowed workspace directory.
+ * This prevents agents from reading/writing files outside their workspace.
+ */
+function isPathWithinWorkspace(filePath: string, workspacePath: string): boolean {
+  // Resolve both paths to absolute, normalized forms
+  const resolvedFile = path.resolve(workspacePath, filePath)
+  const resolvedWorkspace = path.resolve(workspacePath)
+
+  // Check if the file path starts with the workspace path
+  // Use path.sep to ensure we match directory boundaries (not partial names)
+  const normalizedFile = resolvedFile + (resolvedFile.endsWith(path.sep) ? '' : '')
+  const normalizedWorkspace = resolvedWorkspace + path.sep
+
+  return normalizedFile.startsWith(normalizedWorkspace) || resolvedFile === resolvedWorkspace
+}
+
+/**
+ * Extract file path from tool input based on tool name
+ */
+function getFilePathFromToolInput(toolName: string, toolInput: Record<string, unknown>): string | null {
+  if (toolName === 'Read' || toolName === 'Write' || toolName === 'Edit') {
+    return (toolInput.file_path as string) || null
+  }
+  if (toolName === 'MultiEdit') {
+    // MultiEdit has an array of edits, check the file_path
+    return (toolInput.file_path as string) || null
+  }
+  return null
+}
+
+// ============================================
+// Automated Git Operations
+// ============================================
+
+// Track which conversations have agent branches (exported for other services)
+export const conversationBranches: Map<string, string> = new Map()
+
+// Track files changed per turn (for commit-per-turn)
+const turnFileChanges: Map<string, Set<string>> = new Map()
+
+// Track user prompts for commit message generation
+const sessionPrompts: Map<string, string[]> = new Map()
+
+// Track original branch to restore after merge (exported for other services)
+export const originalBranches: Map<string, string> = new Map()
+
+// Track worktree paths per conversation (for commit operations)
+const conversationWorktrees: Map<string, string> = new Map()
+
+/**
+ * Generate branch name for agent session
+ */
+export function generateAgentBranchName(agentName: string, sessionId: string): string {
+  const sanitizedAgentName = agentName.toLowerCase().replace(/[^a-z0-9]/g, '-')
+  const shortSessionId = sessionId.slice(0, 7)
+  return `agent/${sanitizedAgentName}/${shortSessionId}`
+}
+
+/**
+ * Ensure agent branch exists and is checked out
+ * Exported for use by other agent services (e.g., OpenAI Research)
+ *
+ * When useWorktrees is enabled:
+ * - Branch is created but NOT checked out in main repo
+ * - The worktree will have the branch checked out separately
+ *
+ * When useWorktrees is disabled (legacy mode):
+ * - Branch is created and checked out in main repo
+ * - Original branch is saved for later restoration
+ */
+export async function ensureAgentBranch(
+  conversationId: string,
+  sessionId: string,
+  agentName: string,
+  repoPath: string,
+  mainWindow: BrowserWindow,
+  gitSettings: GitSettings
+): Promise<string | null> {
+  // Check if we already have a branch for this conversation
+  if (conversationBranches.has(conversationId)) {
+    return conversationBranches.get(conversationId)!
+  }
+
+  // Check git settings for auto-branch enabled
+  if (!gitSettings.autoBranch) {
+    console.log('[SDK] Auto-branch disabled in settings')
+    return null
+  }
+
+  // Check if this is a git repo
+  const isRepo = await gitService.isRepo(repoPath)
+  if (!isRepo) {
+    console.log('[SDK] Not a git repo, skipping auto-branch')
+    return null
+  }
+
+  const branchName = generateAgentBranchName(agentName, sessionId)
+
+  // If using worktrees, just register the branch name
+  // The worktree will be created with the branch in sendMessageSDK
+  if (gitSettings.useWorktrees) {
+    console.log(`[SDK] Using worktrees - registering branch ${branchName} for conversation`)
+    conversationBranches.set(conversationId, branchName)
+
+    // Notify renderer
+    mainWindow.webContents.send('git:branch-created', {
+      conversationId,
+      branchName,
+      agentName
+    })
+
+    return branchName
+  }
+
+  // Legacy mode: checkout branch in main repo
+  try {
+    // Save original branch for later restoration
+    const currentBranch = await gitService.getBranch(repoPath)
+    if (currentBranch) {
+      originalBranches.set(conversationId, currentBranch)
+    }
+
+    // Get the default branch (main or master) to use as base
+    const defaultBranch = await gitService.getDefaultBranch(repoPath)
+    if (!defaultBranch) {
+      console.log('[SDK] No main/master branch found, using current branch as base')
+    }
+    const baseBranch = defaultBranch || currentBranch || 'HEAD'
+
+    // Check for uncommitted changes
+    const status = await gitService.getStatus(repoPath)
+    if (status.isDirty) {
+      // Stash changes before branching
+      await gitService.stash(repoPath, `Pre-agent stash for ${branchName}`)
+      console.log('[SDK] Stashed uncommitted changes')
+    }
+
+    // Check if branch already exists
+    const exists = await gitService.branchExists(repoPath, branchName)
+    if (exists) {
+      await gitService.checkout(repoPath, branchName)
+      console.log(`[SDK] Checked out existing agent branch: ${branchName}`)
+    } else {
+      // Always create branch from main/master (not current branch)
+      await gitService.createBranchFrom(repoPath, branchName, baseBranch)
+      console.log(`[SDK] Created new agent branch: ${branchName} from ${baseBranch}`)
+    }
+
+    // Pop stash if we stashed
+    if (status.isDirty) {
+      try {
+        await gitService.stashPop(repoPath)
+        console.log('[SDK] Restored stashed changes')
+      } catch (e) {
+        // Stash pop may fail if conflicts - that's okay
+        console.warn('[SDK] Could not pop stash (may have conflicts):', e)
+      }
+    }
+
+    conversationBranches.set(conversationId, branchName)
+
+    // Notify renderer
+    mainWindow.webContents.send('git:branch-created', {
+      conversationId,
+      branchName,
+      agentName
+    })
+
+    return branchName
+  } catch (error) {
+    console.error('[SDK] Failed to create agent branch:', error)
+    return null
+  }
+}
+
+/**
+ * Generate commit message for a single turn
+ */
+function generateTurnCommitMessage(userPrompt: string, files: Set<string>): string {
+  const maxPromptLength = 50
+  let summary = userPrompt.slice(0, maxPromptLength)
+  if (userPrompt.length > maxPromptLength) {
+    summary += '...'
+  }
+
+  const fileList = Array.from(files)
+    .map((f) => f.split('/').pop())
+    .join(', ')
+
+  return `[Agent] ${summary}\n\nFiles: ${fileList}`
+}
+
+/**
+ * Generate commit message for stop event
+ */
+function generateStopCommitMessage(prompts: string[], files: Set<string>): string {
+  const title = prompts[0]?.slice(0, 50) || 'Agent session'
+  const suffix = prompts[0]?.length > 50 ? '...' : ''
+
+  const fileList = Array.from(files)
+    .map((f) => `- ${f.split('/').pop()}`)
+    .join('\n')
+
+  const promptSummary =
+    prompts.length > 1
+      ? `\n\nPrompts (${prompts.length}):\n${prompts.map((p, i) => `${i + 1}. ${p.slice(0, 60)}${p.length > 60 ? '...' : ''}`).join('\n')}`
+      : ''
+
+  return `[Agent - Stopped] ${title}${suffix}\n\nFiles changed:\n${fileList}${promptSummary}`
+}
+
+/**
+ * Commit changes from a turn
+ */
+async function commitTurnChanges(
+  conversationId: string,
+  repoPath: string,
+  userPrompt: string,
+  mainWindow: BrowserWindow,
+  gitSettings: GitSettings
+): Promise<void> {
+  // Check if auto-commit is enabled
+  if (!gitSettings.autoCommit) {
+    console.log('[SDK] Auto-commit disabled in settings')
+    turnFileChanges.delete(conversationId)
+    return
+  }
+
+  const changedFiles = turnFileChanges.get(conversationId)
+  const branchName = conversationBranches.get(conversationId)
+
+  if (!changedFiles || changedFiles.size === 0 || !branchName) {
+    console.log('[SDK] No files changed or no branch for commit', {
+      hasFiles: !!changedFiles,
+      fileCount: changedFiles?.size || 0,
+      hasBranch: !!branchName
+    })
+    return
+  }
+
+  // Use worktree path if available, otherwise use main repo
+  const commitPath = conversationWorktrees.get(conversationId) || repoPath
+
+  try {
+    // Check if there are actual changes to commit
+    const status = await gitService.getStatus(commitPath)
+    if (!status.isDirty) {
+      console.log('[SDK] No changes to commit')
+      turnFileChanges.delete(conversationId)
+      return
+    }
+
+    const commitMessage = generateTurnCommitMessage(userPrompt, changedFiles)
+
+    await gitService.stageAll(commitPath)
+    const commitHash = await gitService.commit(commitPath, commitMessage)
+
+    // Notify renderer
+    mainWindow.webContents.send('git:commit-created', {
+      conversationId,
+      branchName,
+      commitHash,
+      message: commitMessage,
+      files: Array.from(changedFiles),
+      type: 'turn'
+    })
+
+    console.log(`[SDK] Turn commit: ${commitHash.slice(0, 7)}`)
+  } catch (error) {
+    console.error('[SDK] Turn auto-commit failed:', error)
+  } finally {
+    // Clear tracked files for next turn
+    turnFileChanges.delete(conversationId)
+  }
+}
+
+/**
+ * Final commit on stop - catches any uncommitted changes
+ */
+async function commitOnStop(
+  conversationId: string,
+  repoPath: string,
+  mainWindow: BrowserWindow,
+  gitSettings: GitSettings
+): Promise<void> {
+  // Check if auto-commit is enabled
+  if (!gitSettings.autoCommit) {
+    console.log('[SDK] Auto-commit disabled in settings (stop)')
+    turnFileChanges.delete(conversationId)
+    sessionPrompts.delete(conversationId)
+    return
+  }
+
+  const changedFiles = turnFileChanges.get(conversationId)
+  const prompts = sessionPrompts.get(conversationId) || []
+  const branchName = conversationBranches.get(conversationId)
+
+  if (!changedFiles || changedFiles.size === 0 || !branchName) {
+    // Cleanup even if no commit needed
+    turnFileChanges.delete(conversationId)
+    sessionPrompts.delete(conversationId)
+    return
+  }
+
+  // Use worktree path if available, otherwise use main repo
+  const commitPath = conversationWorktrees.get(conversationId) || repoPath
+
+  try {
+    // Check if there are actual changes to commit
+    const status = await gitService.getStatus(commitPath)
+    if (!status.isDirty) {
+      console.log('[SDK] No remaining changes to commit on stop')
+      return
+    }
+
+    const commitMessage = generateStopCommitMessage(prompts, changedFiles)
+
+    await gitService.stageAll(commitPath)
+    const commitHash = await gitService.commit(commitPath, commitMessage)
+
+    // Notify renderer
+    mainWindow.webContents.send('git:commit-created', {
+      conversationId,
+      branchName,
+      commitHash,
+      message: commitMessage,
+      files: Array.from(changedFiles),
+      type: 'stop'
+    })
+
+    console.log(`[SDK] Stop commit: ${commitHash.slice(0, 7)}`)
+  } catch (error) {
+    console.error('[SDK] Stop commit failed:', error)
+  } finally {
+    // Cleanup tracking
+    turnFileChanges.delete(conversationId)
+    sessionPrompts.delete(conversationId)
+  }
+}
+
+/**
+ * Cleanup git tracking for a conversation
+ */
+function cleanupGitTracking(conversationId: string): void {
+  turnFileChanges.delete(conversationId)
+  sessionPrompts.delete(conversationId)
+  // Note: Don't delete conversationBranches - we want to keep the branch association
+  // for future messages in the same conversation
+}
+
+/**
+ * Generic commit function for agent services
+ * Used by both Claude agent and OpenAI Research services
+ */
+export async function commitAgentChanges(
+  conversationId: string,
+  repoPath: string,
+  commitMessage: string,
+  files: string[],
+  commitType: 'turn' | 'stop' | 'research',
+  mainWindow: BrowserWindow,
+  gitSettings: GitSettings
+): Promise<string | null> {
+  // Check if auto-commit is enabled
+  if (!gitSettings.autoCommit) {
+    console.log('[Git] Auto-commit disabled in settings')
+    return null
+  }
+
+  const branchName = conversationBranches.get(conversationId)
+  if (!branchName) {
+    console.log('[Git] No branch for this conversation, skipping commit')
+    return null
+  }
+
+  try {
+    // Check if there are actual changes to commit
+    const status = await gitService.getStatus(repoPath)
+    if (!status.isDirty) {
+      console.log('[Git] No changes to commit')
+      return null
+    }
+
+    await gitService.stageAll(repoPath)
+    const commitHash = await gitService.commit(repoPath, commitMessage)
+
+    // Notify renderer
+    mainWindow.webContents.send('git:commit-created', {
+      conversationId,
+      branchName,
+      commitHash,
+      message: commitMessage,
+      files,
+      type: commitType
+    })
+
+    console.log(`[Git] Commit (${commitType}): ${commitHash.slice(0, 7)}`)
+    return commitHash
+  } catch (error) {
+    console.error(`[Git] Commit failed (${commitType}):`, error)
+    return null
+  }
+}
+
+// ============================================
 // SDK Message Processing
 // ============================================
 
@@ -94,7 +510,8 @@ export async function sendMessageSDK(
   sessionCreatedAt: string | null,
   agentFilePath: string | null,
   mainWindow: BrowserWindow,
-  settings?: ConversationSettings
+  settings?: ConversationSettings,
+  gitSettings?: GitSettings
 ): Promise<void> {
   // Stop any existing stream for this conversation
   await stopAgentSDK(conversationId)
@@ -107,6 +524,7 @@ export async function sendMessageSDK(
 
   // Use provided settings or defaults
   const effectiveSettings = settings || DEFAULT_CONVERSATION_SETTINGS
+  const effectiveGitSettings = gitSettings || DEFAULT_GIT_SETTINGS
 
   // Check if session has expired (Claude sessions last ~30 days)
   let effectiveSessionId = sessionId
@@ -135,6 +553,17 @@ export async function sendMessageSDK(
     message: userMessage
   })
 
+  // Track user prompt for git commit message
+  if (!sessionPrompts.has(conversationId)) {
+    sessionPrompts.set(conversationId, [])
+  }
+  sessionPrompts.get(conversationId)!.push(message)
+
+  // Extract agent name from file path (e.g., ".claude/agents/my-agent.md" -> "my-agent")
+  const agentName = agentFilePath
+    ? agentFilePath.split('/').pop()?.replace('.md', '') || 'agent'
+    : 'chorus'
+
   // Track state during streaming
   let capturedSessionId: string | null = null
   let streamingContent = ''
@@ -155,11 +584,61 @@ export async function sendMessageSDK(
   }
 
   try {
+    // Determine working directory (worktree or main repo)
+    let agentCwd = repoPath
+    let worktreePath: string | null = null
+
+    // Create worktree if enabled and auto-branching is on
+    if (effectiveGitSettings.autoBranch && effectiveGitSettings.useWorktrees) {
+      const isNewSession = !effectiveSessionId
+      if (isNewSession) {
+        // Generate branch name for this conversation
+        const branchName = worktreeService.generateAgentBranchName(agentName, conversationId.slice(0, 7))
+
+        // Create or get worktree
+        worktreePath = await worktreeService.ensureConversationWorktree(
+          repoPath,
+          conversationId,
+          branchName,
+          effectiveGitSettings
+        )
+
+        if (worktreePath) {
+          agentCwd = worktreePath
+          console.log(`[SDK] Using worktree: ${worktreePath}`)
+
+          // Update conversation with worktree path
+          updateConversation(conversationId, { worktreePath })
+
+          // Register branch name and worktree path for commit operations
+          conversationBranches.set(conversationId, branchName)
+          conversationWorktrees.set(conversationId, worktreePath)
+        }
+      } else {
+        // Resuming session - check for existing worktree
+        const existingWorktree = worktreeService.getConversationWorktreePath(repoPath, conversationId)
+        const worktrees = await gitService.listWorktrees(repoPath)
+        const existingWorktreeInfo = worktrees.find(w => w.path === existingWorktree)
+
+        if (existingWorktreeInfo) {
+          agentCwd = existingWorktree
+          worktreePath = existingWorktree
+          console.log(`[SDK] Resuming in existing worktree: ${existingWorktree}`)
+
+          // Register branch name and worktree path for commit operations
+          conversationBranches.set(conversationId, existingWorktreeInfo.branch)
+          conversationWorktrees.set(conversationId, existingWorktree)
+        }
+      }
+    }
+
     // Build SDK options
     const abortController = new AbortController()
     const options: Parameters<typeof query>[0]['options'] = {
-      cwd: repoPath,
-      abortController
+      cwd: agentCwd,  // Use worktree path if available
+      abortController,
+      // Enable project and user settings for slash commands
+      settingSources: ['project', 'user']
     }
 
     // Add model if not default
@@ -183,8 +662,22 @@ export async function sendMessageSDK(
     }
 
     // Add system prompt for new sessions
-    if (systemPromptContent && !effectiveSessionId) {
-      options.systemPrompt = systemPromptContent
+    // Use claude_code preset with optional custom append for agent-specific instructions
+    if (!effectiveSessionId) {
+      if (systemPromptContent) {
+        // Use claude_code preset with custom instructions appended
+        (options as { systemPrompt?: unknown }).systemPrompt = {
+          type: 'preset',
+          preset: 'claude_code',
+          append: systemPromptContent
+        }
+      } else {
+        // Use claude_code preset for slash commands support
+        (options as { systemPrompt?: unknown }).systemPrompt = {
+          type: 'preset',
+          preset: 'claude_code'
+        }
+      }
     }
 
     // Add canUseTool callback for permission handling
@@ -192,6 +685,18 @@ export async function sendMessageSDK(
       toolName: string,
       toolInput: Record<string, unknown>
     ) => {
+      // Security: Validate file paths are within workspace (prevents path traversal attacks)
+      if (FILE_PATH_TOOLS.includes(toolName)) {
+        const filePath = getFilePathFromToolInput(toolName, toolInput)
+        if (filePath && !isPathWithinWorkspace(filePath, agentCwd)) {
+          console.warn(`[SDK] Blocked ${toolName} operation outside workspace: ${filePath} (workspace: ${agentCwd})`)
+          return {
+            behavior: 'deny' as const,
+            message: `Security: File path "${filePath}" is outside the workspace. Operations are restricted to: ${agentCwd}`
+          }
+        }
+      }
+
       const requestId = `${conversationId}-${uuidv4()}`
 
       // Send permission request to renderer
@@ -226,7 +731,10 @@ export async function sendMessageSDK(
       })
     }
 
-    // Add hooks for file change notifications
+    // Enable partial messages for real-time text streaming
+    options.includePartialMessages = true
+
+    // Add hooks for file change notifications and auto-commit tracking
     options.hooks = {
       PostToolUse: [
         {
@@ -237,7 +745,13 @@ export async function sendMessageSDK(
                 const toolInput = input.tool_input as { file_path?: string } | undefined
                 const filePath = toolInput?.file_path
                 const toolName = input.tool_name
-                if (filePath && (toolName === 'Write' || toolName === 'Edit')) {
+                if (filePath && (toolName === 'Write' || toolName === 'Edit' || toolName === 'MultiEdit')) {
+                  // Track file for auto-commit
+                  if (!turnFileChanges.has(conversationId)) {
+                    turnFileChanges.set(conversationId, new Set())
+                  }
+                  turnFileChanges.get(conversationId)!.add(filePath)
+
                   // Persist file change as a message for session resumption
                   const fileChangeMessage: ConversationMessage = {
                     uuid: uuidv4(),
@@ -257,6 +771,18 @@ export async function sendMessageSDK(
                   })
                 }
               }
+              return { continue: true }
+            }
+          ]
+        }
+      ],
+      // Stop hook for final commit when agent stops
+      Stop: [
+        {
+          hooks: [
+            async () => {
+              // Final commit on stop - catches any uncommitted changes
+              await commitOnStop(conversationId, repoPath, mainWindow, effectiveGitSettings)
               return { continue: true }
             }
           ]
@@ -315,23 +841,77 @@ export async function sendMessageSDK(
           claudeMessage: systemMsg as ClaudeCodeMessage
         }
         appendMessage(conversationId, systemMessage)
+
+        // Auto-create agent branch (only for new sessions)
+        if (isNewSession) {
+          const branchName = await ensureAgentBranch(conversationId, newSessionId, agentName, repoPath, mainWindow, effectiveGitSettings)
+          // Store branchName in conversation for cascade delete
+          if (branchName) {
+            updateConversation(conversationId, { branchName })
+          }
+        }
       }
 
-      // Handle assistant messages
+      // Handle partial assistant messages (real-time streaming)
+      if (msg.type === 'stream_event') {
+        const partialMsg = msg as SDKPartialAssistantMessage
+        const event = partialMsg.event
+
+        // Handle text deltas for real-time streaming
+        if (event.type === 'content_block_delta') {
+          const delta = event.delta as { type: string; text?: string; thinking?: string }
+          if (delta.type === 'text_delta' && delta.text) {
+            mainWindow.webContents.send('agent:stream-delta', {
+              conversationId,
+              delta: delta.text
+            })
+            streamingContent += delta.text
+          } else if (delta.type === 'thinking_delta' && delta.thinking) {
+            mainWindow.webContents.send('agent:stream-delta', {
+              conversationId,
+              delta: delta.thinking
+            })
+          }
+        }
+        continue // Skip further processing for partial messages
+      }
+
+      // Handle assistant messages (complete messages - for tool_use blocks)
+      // Note: Text content is already streamed via stream_event above
       if (msg.type === 'assistant' && 'message' in msg) {
         const assistantMsg = msg as unknown as ClaudeAssistantMessage
         currentAssistantMessage = assistantMsg
 
         if (assistantMsg.message?.content) {
           for (const block of assistantMsg.message.content) {
+            // Skip text blocks - already streamed via partial messages
+            // But first, flush any accumulated text as a message before tool_use
             if (block.type === 'text') {
-              // Send stream delta for real-time display
-              mainWindow.webContents.send('agent:stream-delta', {
-                conversationId,
-                delta: block.text
-              })
-              streamingContent += block.text
+              continue
             } else if (block.type === 'tool_use') {
+              // IMPORTANT: Flush accumulated streaming text BEFORE emitting tool_use
+              // This ensures text appears before the tool calls that follow it
+              if (streamingContent.trim()) {
+                // Note: Don't include token info on intermediate messages
+                // Token info is only meaningful on the final message of a turn
+                const textMessage: ConversationMessage = {
+                  uuid: uuidv4(),
+                  type: 'assistant',
+                  content: streamingContent,
+                  timestamp: new Date().toISOString(),
+                  sessionId: capturedSessionId || undefined
+                }
+                appendMessage(conversationId, textMessage)
+                mainWindow.webContents.send('agent:message', {
+                  conversationId,
+                  agentId,
+                  message: textMessage
+                })
+                // Clear streaming content and notify renderer to clear streaming display
+                streamingContent = ''
+                mainWindow.webContents.send('agent:stream-clear', { conversationId })
+              }
+
               const toolBlock = block as ToolUseBlock
 
               // Special handling for TodoWrite tool - emit todo update event
@@ -385,12 +965,9 @@ export async function sendMessageSDK(
                 agentId,
                 message: toolMessage
               })
-            } else if (block.type === 'thinking' && 'thinking' in block) {
-              // Handle thinking blocks
-              mainWindow.webContents.send('agent:stream-delta', {
-                conversationId,
-                delta: `\n<thinking>${block.thinking}</thinking>\n`
-              })
+            } else if (block.type === 'thinking') {
+              // Skip thinking blocks - already streamed via partial messages
+              continue
             }
           }
         }
@@ -430,6 +1007,9 @@ export async function sendMessageSDK(
       if (msg.type === 'result') {
         const resultMsg = msg as unknown as ClaudeResultMessage
         resultMessage = resultMsg
+        // Log result message for debugging token usage
+        console.log('[SDK] Result message usage:', JSON.stringify(resultMsg.usage, null, 2))
+        console.log('[SDK] Result message cost:', resultMsg.total_cost_usd)
         if (resultMsg.session_id && !capturedSessionId) {
           const sessionCreatedAtNow = new Date().toISOString()
           capturedSessionId = resultMsg.session_id
@@ -445,11 +1025,20 @@ export async function sendMessageSDK(
             sessionCreatedAt: sessionCreatedAtNow
           })
         }
+
+        // Auto-commit changes from this turn (commit-per-turn)
+        await commitTurnChanges(conversationId, repoPath, message, mainWindow, effectiveGitSettings)
       }
     }
 
     // Save the complete assistant message if we have content
     if (streamingContent.trim()) {
+      // Use cumulative token usage from result message (authoritative source)
+      // Access usage from raw objects to avoid type narrowing issues
+      const rawResult = resultMessage as unknown as Record<string, unknown> | undefined
+      const rawAssistant = currentAssistantMessage?.message as unknown as Record<string, unknown> | undefined
+      const usage = (rawResult?.usage || rawAssistant?.usage) as Record<string, number> | undefined
+
       const assistantMessage: ConversationMessage = {
         uuid: uuidv4(),
         type: 'assistant',
@@ -457,8 +1046,11 @@ export async function sendMessageSDK(
         timestamp: new Date().toISOString(),
         sessionId: capturedSessionId || undefined,
         claudeMessage: currentAssistantMessage || undefined,
-        inputTokens: currentAssistantMessage?.message?.usage?.input_tokens,
-        outputTokens: currentAssistantMessage?.message?.usage?.output_tokens,
+        // Use cumulative usage from result message
+        inputTokens: usage?.input_tokens,
+        outputTokens: usage?.output_tokens,
+        cacheReadTokens: usage?.cache_read_input_tokens,
+        cacheCreationTokens: usage?.cache_creation_input_tokens,
         costUsd: resultMessage?.total_cost_usd,
         durationMs: resultMessage?.duration_ms
       }
@@ -477,8 +1069,27 @@ export async function sendMessageSDK(
       }
     }
 
-    // Store result message with session stats
+    // Store result message with session stats and cumulative token usage
     if (resultMessage) {
+      // Access usage and modelUsage from the raw message object (avoid type narrowing issues)
+      const rawResult = resultMessage as unknown as Record<string, unknown>
+      const usage = rawResult.usage as Record<string, number> | undefined
+      const modelUsage = rawResult.modelUsage as Record<string, { contextWindow?: number }> | undefined
+
+      // Get context window from the primary model (usually opus or the main model used)
+      // Find the model with the highest token usage (main conversation model)
+      let contextWindow: number | undefined
+      if (modelUsage) {
+        let maxTokens = 0
+        for (const [, modelData] of Object.entries(modelUsage)) {
+          const totalTokens = (modelData as Record<string, number>).inputTokens || 0
+          if (totalTokens > maxTokens && modelData.contextWindow) {
+            maxTokens = totalTokens
+            contextWindow = modelData.contextWindow
+          }
+        }
+      }
+
       const resultStoredMessage: ConversationMessage = {
         uuid: uuidv4(),
         type: 'system',
@@ -487,9 +1098,23 @@ export async function sendMessageSDK(
         sessionId: resultMessage.session_id,
         claudeMessage: resultMessage,
         costUsd: resultMessage.total_cost_usd,
-        durationMs: resultMessage.duration_ms
+        durationMs: resultMessage.duration_ms,
+        numTurns: resultMessage.num_turns,
+        // Store cumulative token usage from result message
+        inputTokens: usage?.input_tokens,
+        outputTokens: usage?.output_tokens,
+        cacheReadTokens: usage?.cache_read_input_tokens,
+        cacheCreationTokens: usage?.cache_creation_input_tokens,
+        contextWindow
       }
       appendMessage(conversationId, resultStoredMessage)
+
+      // Send result message to renderer for context metrics display
+      mainWindow.webContents.send('agent:message', {
+        conversationId,
+        agentId,
+        message: resultStoredMessage
+      })
     }
   } catch (error) {
     // Handle interruption
@@ -534,6 +1159,7 @@ export async function sendMessageSDK(
     // Cleanup
     activeStreams.delete(conversationId)
     cancelPendingPermissions(conversationId)
+    cleanupGitTracking(conversationId)
 
     // Send ready status
     mainWindow.webContents.send('agent:status', {

@@ -84,17 +84,37 @@ export interface ClaudeUserMessage {
   }
 }
 
+// Model usage breakdown from result message
+export interface ModelUsageEntry {
+  inputTokens: number
+  outputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+  webSearchRequests: number
+  costUSD: number
+  contextWindow: number
+}
+
 // Claude Code result message
 export interface ClaudeResultMessage {
   type: 'result'
   result: string
-  subtype: 'success' | 'error'
+  subtype: 'success' | 'error' | 'error_max_turns' | 'error_during_execution'
   session_id: string
   total_cost_usd: number
   duration_ms: number
   duration_api_ms: number
   num_turns: number
   is_error: boolean
+  // Cumulative token usage for the entire turn
+  usage: {
+    input_tokens: number
+    output_tokens: number
+    cache_creation_input_tokens: number
+    cache_read_input_tokens: number
+  }
+  // Per-model breakdown with context window info
+  modelUsage: Record<string, ModelUsageEntry>
 }
 
 // Union of all Claude Code message types
@@ -112,10 +132,20 @@ export interface ContentBlock {
   input?: Record<string, unknown>
 }
 
+// Research progress phase types
+export type ResearchPhase = 'analyzing' | 'searching' | 'reasoning' | 'synthesizing' | 'complete'
+
+// Research source discovered during web search
+export interface ResearchSource {
+  url?: string
+  title?: string
+  query?: string
+}
+
 // Stored message format - includes both raw Claude message and display-friendly data
 export interface ConversationMessage {
   uuid: string
-  type: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'error' | 'system'
+  type: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'error' | 'system' | 'research_progress' | 'research_result'
   content: string | ContentBlock[]
   timestamp: string
   sessionId?: string
@@ -132,6 +162,20 @@ export interface ConversationMessage {
   durationMs?: number
   inputTokens?: number
   outputTokens?: number
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
+  // Context window from the model used (from result.modelUsage)
+  contextWindow?: number
+  // Number of turns in this session
+  numTurns?: number
+  // Research-specific fields (for type 'research_progress' and 'research_result')
+  researchPhase?: ResearchPhase
+  researchSources?: ResearchSource[]
+  searchCount?: number
+  // Research result metadata
+  outputPath?: string
+  wordCount?: number
+  sourceCount?: number
 }
 
 // Conversation Settings Types
@@ -160,6 +204,8 @@ export interface Conversation {
   id: string
   sessionId: string | null
   sessionCreatedAt: string | null  // ISO timestamp when session was created (for expiry tracking)
+  branchName: string | null  // Git branch name associated with this conversation (for auto-branch feature)
+  worktreePath: string | null  // Path to worktree if using worktree isolation (Sprint 16)
   agentId: string
   workspaceId: string
   title: string
@@ -289,6 +335,8 @@ export function createConversation(workspaceId: string, agentId: string): Conver
     id: uuidv4(),
     sessionId: null,
     sessionCreatedAt: null,
+    branchName: null,
+    worktreePath: null,
     agentId,
     workspaceId,
     title: 'New Conversation',
@@ -354,7 +402,7 @@ export function loadConversation(conversationId: string): { conversation: Conver
  */
 export function updateConversation(
   conversationId: string,
-  updates: Partial<Pick<Conversation, 'title' | 'sessionId' | 'sessionCreatedAt' | 'messageCount' | 'settings'>>
+  updates: Partial<Pick<Conversation, 'title' | 'sessionId' | 'sessionCreatedAt' | 'branchName' | 'worktreePath' | 'messageCount' | 'settings'>>
 ): Conversation | null {
   const location = getConversationPath(conversationId)
   if (!location) {
@@ -374,6 +422,7 @@ export function updateConversation(
   if (updates.title !== undefined) conversation.title = updates.title
   if (updates.sessionId !== undefined) conversation.sessionId = updates.sessionId
   if (updates.sessionCreatedAt !== undefined) conversation.sessionCreatedAt = updates.sessionCreatedAt
+  if (updates.branchName !== undefined) conversation.branchName = updates.branchName
   if (updates.messageCount !== undefined) conversation.messageCount = updates.messageCount
   if (updates.settings !== undefined) conversation.settings = updates.settings
   conversation.updatedAt = new Date().toISOString()
@@ -492,6 +541,57 @@ export function deleteConversation(conversationId: string): boolean {
   }
 
   return true
+}
+
+/**
+ * Get the branchName for a conversation (for cascade delete)
+ */
+export function getConversationBranchName(conversationId: string): string | null {
+  const location = getConversationPath(conversationId)
+  if (!location) {
+    return null
+  }
+
+  const { workspaceId, agentId } = location
+  const index = readConversationsIndex(workspaceId, agentId)
+  const conversation = index.conversations.find(c => c.id === conversationId)
+
+  return conversation?.branchName || null
+}
+
+/**
+ * Find and delete all conversations associated with a git branch
+ * Returns the IDs of deleted conversations
+ */
+export function deleteConversationsByBranch(workspaceId: string, branchName: string): string[] {
+  const deletedIds: string[] = []
+  const chorusDir = getChorusDir()
+  const workspaceSessionsDir = join(chorusDir, 'sessions', workspaceId)
+
+  if (!existsSync(workspaceSessionsDir)) {
+    return deletedIds
+  }
+
+  // Iterate through all agent directories in this workspace
+  try {
+    const agentDirs = readdirSync(workspaceSessionsDir)
+    for (const agentId of agentDirs) {
+      const index = readConversationsIndex(workspaceId, agentId)
+
+      // Find conversations with this branch name
+      const toDelete = index.conversations.filter(c => c.branchName === branchName)
+
+      for (const conversation of toDelete) {
+        if (deleteConversation(conversation.id)) {
+          deletedIds.push(conversation.id)
+        }
+      }
+    }
+  } catch {
+    // Ignore errors reading directories
+  }
+
+  return deletedIds
 }
 
 // ============================================

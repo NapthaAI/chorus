@@ -11,6 +11,9 @@ interface WalkEntry {
 interface UseFileSearchResult {
   files: WalkEntry[]
   search: (query: string) => WalkEntry[]
+  searchInPath: (query: string, pathPrefix: string) => WalkEntry[]
+  getChildren: (folderPath: string) => WalkEntry[]
+  getRootItems: () => WalkEntry[]
   isLoading: boolean
   error: string | null
   refresh: () => Promise<void>
@@ -85,14 +88,47 @@ export function useFileSearch(workspacePath: string | null): UseFileSearchResult
   const search = useCallback(
     (query: string): WalkEntry[] => {
       if (!query.trim()) {
-        // Return first 10 files when no query
-        return files.slice(0, 10)
+        // Return root-level items (files without "/" in path) to show both folders AND files
+        const rootItems = files.filter(f => !f.relativePath.includes('/'))
+        return rootItems.slice(0, 20)
       }
 
-      const results = fuse.search(query, { limit: 10 })
+      const results = fuse.search(query, { limit: 20 })
       return results.map((r) => r.item)
     },
     [fuse, files]
+  )
+
+  // Search within a specific path prefix (for path filters like @src/)
+  const searchInPath = useCallback(
+    (query: string, pathPrefix: string): WalkEntry[] => {
+      // Filter files to only those in the path
+      const filesInPath = files.filter(f => f.relativePath.startsWith(pathPrefix))
+
+      if (!query.trim()) {
+        // No query - return direct children of the path
+        const normalizedPath = pathPrefix.endsWith('/') ? pathPrefix.slice(0, -1) : pathPrefix
+        const directChildren = filesInPath.filter(f => {
+          const relativeToPrefx = f.relativePath.slice(pathPrefix.length)
+          // Direct child has no more slashes
+          return !relativeToPrefx.includes('/')
+        })
+        return directChildren.slice(0, 20)
+      }
+
+      // Create a Fuse instance for just these files
+      const pathFuse = new Fuse(filesInPath, {
+        keys: ['name', 'relativePath'],
+        threshold: 0.4,
+        includeScore: true,
+        ignoreLocation: true,
+        fieldNormWeight: 1
+      })
+
+      const results = pathFuse.search(query, { limit: 20 })
+      return results.map((r) => r.item)
+    },
+    [files]
   )
 
   // Manual refresh function (clears cache)
@@ -103,9 +139,34 @@ export function useFileSearch(workspacePath: string | null): UseFileSearchResult
     await loadFiles()
   }, [workspacePath, loadFiles])
 
+  // Get direct children of a folder path
+  const getChildren = useCallback(
+    (folderPath: string): WalkEntry[] => {
+      // Normalize folder path (remove trailing slash if present)
+      const normalizedPath = folderPath.endsWith('/') ? folderPath.slice(0, -1) : folderPath
+
+      return files.filter((f) => {
+        // Get parent directory of the file
+        const lastSlash = f.relativePath.lastIndexOf('/')
+        const parentPath = lastSlash > 0 ? f.relativePath.slice(0, lastSlash) : ''
+
+        return parentPath === normalizedPath
+      })
+    },
+    [files]
+  )
+
+  // Get root-level items (files/folders with no parent path)
+  const getRootItems = useCallback((): WalkEntry[] => {
+    return files.filter((f) => !f.relativePath.includes('/'))
+  }, [files])
+
   return {
     files,
     search,
+    searchInPath,
+    getChildren,
+    getRootItems,
     isLoading,
     error,
     refresh

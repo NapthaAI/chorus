@@ -1,5 +1,3 @@
-export { ChatView } from './ChatView'
-export { ChatSidebar } from './ChatSidebar'
 export { ChatArea } from './ChatArea'
 export { ChatHeader } from './ChatHeader'
 export { ConversationList } from './ConversationList'

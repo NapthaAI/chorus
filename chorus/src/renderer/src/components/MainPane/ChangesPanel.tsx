@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { GitStatus } from '../../types'
+import type { GitStatus, GitChange } from '../../types'
+import { useFileTreeStore } from '../../stores/file-tree-store'
 
 interface ChangesPanelProps {
   workspacePath: string
@@ -37,6 +38,20 @@ const WarningIcon = () => (
   </svg>
 )
 
+// Action icons
+const DiscardIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M8 1a7 7 0 11-4.95 11.95l-.707.707A8 8 0 108 0v1z" />
+    <path d="M7.5 3v5.293L5.354 6.146a.5.5 0 10-.708.708l3 3a.5.5 0 00.708 0l3-3a.5.5 0 00-.708-.708L8.5 8.293V3a.5.5 0 00-1 0z" />
+  </svg>
+)
+
+const StageIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+    <path d="M8 4a.5.5 0 01.5.5v3h3a.5.5 0 010 1h-3v3a.5.5 0 01-1 0v-3h-3a.5.5 0 010-1h3v-3A.5.5 0 018 4z" />
+  </svg>
+)
+
 function getStatusIcon(status: string) {
   switch (status.trim()) {
     case 'M':
@@ -53,22 +68,68 @@ function getStatusIcon(status: string) {
   }
 }
 
+// Confirmation dialog state
+interface DiscardConfirmState {
+  file: string
+  status: string
+}
+
 export function ChangesPanel({ workspacePath }: ChangesPanelProps) {
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [discardConfirm, setDiscardConfirm] = useState<DiscardConfirmState | null>(null)
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null)
+  const triggerFileTreeRefresh = useFileTreeStore((state) => state.triggerRefresh)
+
+  const loadStatus = async () => {
+    const result = await window.api.git.status(workspacePath)
+    if (result.success && result.data) {
+      setStatus(result.data)
+    }
+  }
 
   useEffect(() => {
     setIsLoading(true)
-    window.api.git.status(workspacePath)
-      .then((result) => {
-        if (result.success && result.data) {
-          setStatus(result.data)
-        }
-      })
-      .finally(() => {
-        setIsLoading(false)
-      })
+    loadStatus().finally(() => setIsLoading(false))
   }, [workspacePath])
+
+  const handleDiscard = async (change: GitChange) => {
+    setDiscardConfirm({ file: change.file, status: change.status })
+  }
+
+  const handleDiscardConfirm = async () => {
+    if (!discardConfirm) return
+
+    setActionInProgress(discardConfirm.file)
+    try {
+      const result = await window.api.git.discardChanges(workspacePath, discardConfirm.file)
+      if (result.success) {
+        await loadStatus() // Refresh the git status list
+        triggerFileTreeRefresh() // Refresh file tree since files changed on disk
+      } else {
+        console.error('Failed to discard:', result.error)
+      }
+    } catch (error) {
+      console.error('Discard failed:', error)
+    } finally {
+      setActionInProgress(null)
+      setDiscardConfirm(null)
+    }
+  }
+
+  const handleStage = async (change: GitChange) => {
+    setActionInProgress(change.file)
+    try {
+      const result = await window.api.git.stageFile(workspacePath, change.file)
+      if (result.success) {
+        await loadStatus()
+      }
+    } catch (error) {
+      console.error('Stage failed:', error)
+    } finally {
+      setActionInProgress(null)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -93,10 +154,34 @@ export function ChangesPanel({ workspacePath }: ChangesPanelProps) {
         {status.changes.slice(0, 10).map((change, i) => (
           <div
             key={i}
-            className="flex items-center gap-2 text-sm py-1 px-2 rounded hover:bg-hover"
+            className="flex items-center gap-2 text-sm py-1 px-2 rounded hover:bg-hover group"
           >
             <span className="flex-shrink-0">{getStatusIcon(change.status)}</span>
-            <span className="font-mono text-muted truncate min-w-0">{change.file}</span>
+            <span className="font-mono text-muted truncate min-w-0 flex-1">{change.file}</span>
+
+            {/* Action buttons - show on hover */}
+            <div className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {actionInProgress === change.file ? (
+                <div className="w-4 h-4 border-2 border-muted border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <button
+                    onClick={() => handleStage(change)}
+                    className="p-1 text-muted hover:text-green-400 transition-colors"
+                    title="Stage changes"
+                  >
+                    <StageIcon />
+                  </button>
+                  <button
+                    onClick={() => handleDiscard(change)}
+                    className="p-1 text-muted hover:text-red-400 transition-colors"
+                    title="Discard changes"
+                  >
+                    <DiscardIcon />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         ))}
         {status.changes.length > 10 && (
@@ -105,6 +190,40 @@ export function ChangesPanel({ workspacePath }: ChangesPanelProps) {
           </p>
         )}
       </div>
+
+      {/* Discard Confirmation Dialog */}
+      {discardConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-start justify-center pt-[15%] z-50">
+          <div className="bg-surface border border-default rounded shadow-lg w-[400px]">
+            <div className="p-4">
+              <p className="text-primary text-sm">
+                Discard changes to <span className="font-mono text-secondary">{discardConfirm.file}</span>?
+              </p>
+              <p className="text-xs text-muted mt-2">
+                {discardConfirm.status === 'D'
+                  ? 'This will restore the deleted file.'
+                  : discardConfirm.status === '??' || discardConfirm.status === 'A'
+                  ? 'This will delete the untracked file.'
+                  : 'This will revert changes to the last commit.'}
+              </p>
+            </div>
+            <div className="px-4 pb-3 flex justify-end gap-2">
+              <button
+                onClick={() => setDiscardConfirm(null)}
+                className="px-3 py-1.5 text-sm rounded border border-default hover:bg-hover text-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDiscardConfirm}
+                className="px-3 py-1.5 text-sm rounded bg-red-600 hover:bg-red-700 text-white transition-colors"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

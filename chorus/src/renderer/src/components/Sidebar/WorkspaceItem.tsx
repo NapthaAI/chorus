@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AgentItem } from './AgentItem'
 import { BranchSelector } from './BranchSelector'
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { useFileTreeStore } from '../../stores/file-tree-store'
 import type { Workspace } from '../../types'
 
 interface WorkspaceItemProps {
@@ -43,22 +44,25 @@ const DocumentIcon = () => (
 export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
   const {
     selectedWorkspaceId,
-    selectWorkspace,
     toggleWorkspaceExpanded,
     removeWorkspace,
     refreshWorkspace
   } = useWorkspaceStore()
+  const triggerFileTreeRefresh = useFileTreeStore((state) => state.triggerRefresh)
   const [showContextMenu, setShowContextMenu] = useState(false)
 
   const handleBranchChange = async () => {
     // Refresh the workspace to update branch info and dirty state
     await refreshWorkspace(workspace.id)
+    // Trigger file tree refresh to show files from new branch
+    triggerFileTreeRefresh()
   }
 
   const isSelected = selectedWorkspaceId === workspace.id
 
   const handleClick = () => {
-    selectWorkspace(workspace.id)
+    // Toggle expansion inline instead of navigating to workspace view
+    toggleWorkspaceExpanded(workspace.id)
   }
 
   const handleToggleExpand = (e: React.MouseEvent) => {
@@ -122,6 +126,7 @@ export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
               <BranchSelector
                 currentBranch={workspace.gitBranch}
                 workspacePath={workspace.path}
+                workspaceId={workspace.id}
                 onBranchChange={handleBranchChange}
               />
               {workspace.isDirty && (

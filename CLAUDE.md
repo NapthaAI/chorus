@@ -64,7 +64,7 @@ chorus/
 
 **Component Structure**: Components use inline SVG icons. No icon library.
 
-**Claude Agent SDK Integration**: Agents communicate via `@anthropic-ai/claude-agent-sdk` using the `query()` function directly (no CLI spawning). The SDK provides streaming messages, session management via `options.resume`, permission handling via `canUseTool` callback, and file change notifications via `PostToolUse` hooks. Messages are stored in JSONL format at `~/.chorus/sessions/{workspaceId}/{agentId}/`. See `docs/3-tools/claude-code/message-format.md` for the message format spec and `specifications/5-migrate-to-cc-agent-sdk/` for migration details.
+**Claude Agent SDK Integration**: Agents communicate via `@anthropic-ai/claude-agent-sdk` using the `query()` function directly (no CLI spawning). The SDK provides streaming messages, session management via `options.resume`, permission handling via `canUseTool` callback, and file change notifications via `PostToolUse` hooks. Messages are stored in JSONL format at `~/.chorus/sessions/{workspaceId}/{agentId}/`. See `docs/3-tools/claude-agent-sdk/` for comprehensive SDK documentation.
 
 **Conversation Storage**: Each conversation has an index entry in `conversations.json` and messages in `{conversationId}-messages.jsonl`. Raw Claude Code messages are preserved in the `claudeMessage` field for session resumption.
 
@@ -80,7 +80,7 @@ chorus/
 
 **Workspace Default Settings**: Each workspace can have default settings stored in the central `.chorus/config.json` (under each workspace's `settings` field) that apply to new conversations. The settings hierarchy is: Global defaults → Workspace defaults → Per-conversation overrides. The `WorkspaceSettings` component in the Workspace Overview page allows users to configure defaults for permission mode, allowed tools, and model selection.
 
-**Session Resumption**: Conversations use the SDK's `options.resume` with session ID to continue sessions. The sessionId is captured from the `system.init` message and stored in the conversation's `sessionId` field. The `sessionCreatedAt` timestamp tracks when the session was created for expiry detection (sessions expire after ~25 days). CRITICAL: The renderer must sync sessionId from backend after first message - this is done via the `agent:session-update` IPC event. See `docs/3-tools/claude-code/session-management.md` for detailed documentation.
+**Session Resumption**: Conversations use the SDK's `options.resume` with session ID to continue sessions. The sessionId is captured from the `system.init` message and stored in the conversation's `sessionId` field. The `sessionCreatedAt` timestamp tracks when the session was created for expiry detection (sessions expire after ~25 days). CRITICAL: The renderer must sync sessionId from backend after first message - this is done via the `agent:session-update` IPC event. See `docs/3-tools/claude-agent-sdk/3-sessions.md` for detailed documentation.
 
 **Workspace Isolation**: Each agent runs in its workspace directory (the cloned repo path), NOT the parent Chorus directory. For example, if `mcplatform` repo is added to Chorus at `cc-slack/mcplatform`, Claude Code sessions run with `cwd: cc-slack/mcplatform`. The agent should NOT have access to `cc-slack/` parent. This is enforced in `agent-sdk-service.ts` via the `cwd: repoPath` option.
 
@@ -89,6 +89,23 @@ chorus/
 **Details Panel**: The chat sidebar has a "Details" tab showing real-time conversation info: files changed (clickable to open in FileViewer), agent's todo list with status icons (pending/in_progress/completed), tool calls breakdown by tool type with success/failure counts, and context metrics (input/output tokens, cost). TodoWrite tool calls are intercepted and emitted via `agent:todo-update` IPC event. File changes from Write/Edit tools are tracked via `agent:file-changed` IPC event. State is stored in chat-store (`conversationTodos`, `conversationFiles` Maps) and reconstructed from JSONL on conversation load. See `ConversationDetails.tsx` and `specifications/6-from-chat-to-work/`.
 
 **Tab Navigation**: VS Code-style tabs enable switching between chat and file views. Clicking a file from Details panel opens it in a new tab while keeping the chat accessible. State is managed in workspace-store (`tabs`, `activeTabId`) and persisted via `ChorusSettings.openTabs`. The `selectFile` and `selectAgent` actions automatically create/activate tabs. Duplicate tabs are prevented by checking existing tabs. Tabs show workspace name in tooltip. See `TabBar.tsx` and `specifications/7-tab-navigation/`.
+
+**Automated Git Operations**: Both Claude and OpenAI Research agents support automated git operations controlled by workspace settings (`gitSettings.autoBranch` and `gitSettings.autoCommit`). When enabled:
+- **Auto-branching**: Creates a dedicated branch from main/master when a new conversation starts. Branch naming: `agent/{agentName}/{sessionId}` for Claude, `agent/deep-research/{conversationId}` for OpenAI Research. Existing uncommitted changes are stashed and restored after branch creation.
+- **Auto-committing**: Claude agents commit per-turn (when a `result` event fires) and on stop. OpenAI Research commits after saving each research output. Commit messages include the user prompt and changed files.
+- Branches are tracked per-conversation in `conversationBranches` Map and stored in `conversation.branchName` for cascade delete support.
+- Git operations notify renderer via `git:branch-created` and `git:commit-created` IPC events.
+- Shared infrastructure in `agent-sdk-service.ts`: `ensureAgentBranch()`, `commitAgentChanges()`.
+
+**OpenAI Deep Research Integration**: The "Deep Research" agent uses OpenAI's `@openai/agents` SDK for comprehensive web research. Key features:
+- **Models**: `o4-mini-deep-research-2025-06-26` (default) or `o3-deep-research-2025-06-26`
+- **API Key**: Stored in `ChorusSettings.openaiApiKey`, configured via Settings dialog
+- **Output**: Research results are saved to markdown files in the configured output directory (default: `./research`), with automatic git commit
+- **Streaming**: Shows real-time status ("🔍 Searching the web...", "🤔 Analyzing...") during the extensive search/reasoning phase
+- **Follow-ups**: Previous research outputs are included as context for follow-up questions (max 2 recent outputs)
+- **Routing**: `agent-service.ts` routes messages based on `agent.type` ('claude' vs 'openai-research')
+- **No session resumption**: Unlike Claude, OpenAI Research is stateless - each query is independent
+- See `chorus/src/main/services/openai-research-service.ts` and Settings dialog for OpenAI API key configuration.
 
 ## Development
 
@@ -104,8 +121,9 @@ bun run typecheck  # Type check all code
 
 - `chorus/src/main/index.ts` - IPC handler registration
 - `chorus/src/main/store/index.ts` - Data persistence schema
-- `chorus/src/main/services/agent-service.ts` - Agent API facade (delegates to SDK service)
-- `chorus/src/main/services/agent-sdk-service.ts` - Claude Agent SDK integration, streaming, permissions
+- `chorus/src/main/services/agent-service.ts` - Agent API facade (routes to SDK or OpenAI based on agent type)
+- `chorus/src/main/services/agent-sdk-service.ts` - Claude Agent SDK integration, streaming, permissions, shared git operations
+- `chorus/src/main/services/openai-research-service.ts` - OpenAI Deep Research integration using @openai/agents SDK
 - `chorus/src/main/services/conversation-service.ts` - Conversation CRUD, JSONL message storage
 - `chorus/src/main/services/git-service.ts` - Git operations (status, branches, checkout, clone)
 - `chorus/src/renderer/src/stores/workspace-store.ts` - Main UI state
@@ -119,6 +137,5 @@ bun run typecheck  # Type check all code
 - `chorus/src/renderer/src/components/MainPane/WorkspaceSettings.tsx` - Workspace settings UI in overview
 - `chorus/src/renderer/src/components/dialogs/PermissionDialog.tsx` - SDK permission request dialog
 - `chorus/src/renderer/src/components/Chat/ConversationDetails.tsx` - Details panel with files, todos, tool calls, metrics
-- `docs/3-tools/claude-code/message-format.md` - Claude Code stream-json format documentation
-- `docs/3-tools/claude-code/session-management.md` - Session resumption best practices and known issues
+- `docs/3-tools/claude-agent-sdk/` - Claude Agent SDK documentation (message types, sessions, permissions, hooks, etc.)
 - `specifications/5-migrate-to-cc-agent-sdk/feature.md` - SDK migration requirements and known limitations

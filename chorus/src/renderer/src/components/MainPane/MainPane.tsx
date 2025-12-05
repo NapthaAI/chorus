@@ -1,8 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { FileViewer } from './FileViewer'
 import { WorkspaceOverview } from './WorkspaceOverview'
+import { ChatTab } from './ChatTab'
 import { TabBar } from './TabBar'
-import { ChatView } from '../Chat'
+import { SplitPaneContainer } from './SplitPaneContainer'
+import { DropZoneOverlay, type DropPosition } from './DropZoneOverlay'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 
 // SVG Icons
@@ -39,64 +41,170 @@ const ArrowRightIcon = () => (
   </svg>
 )
 
+// Empty pane placeholder when no tab is assigned
+function EmptyPanePlaceholder() {
+  return (
+    <div className="flex items-center justify-center h-full bg-main text-muted">
+      <div className="text-center p-4">
+        <p className="text-sm">No tab assigned to this pane</p>
+        <p className="text-xs mt-1">Drag a tab here or click a tab while holding Shift</p>
+      </div>
+    </div>
+  )
+}
+
 export function MainPane() {
   const {
     workspaces,
-    selectedWorkspaceId,
-    selectedAgentId,
-    selectedFilePath,
     tabs,
     activeTabId,
-    loadTabs
+    loadTabs,
+    splitPaneEnabled,
+    splitPaneRatio,
+    splitPaneOrientation,
+    firstPaneGroup,
+    secondPaneGroup,
+    activePaneId,
+    setSplitPaneRatio,
+    setSplitPaneOrientation,
+    saveSplitPaneSettings,
+    swapSplitPanes,
+    toggleSplitPane,
+    moveTabToPane
   } = useWorkspaceStore()
+
+  // Drag and drop state
+  const [isDraggingTab, setIsDraggingTab] = useState(false)
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
 
   // Load tabs on mount
   useEffect(() => {
     loadTabs()
   }, [loadTabs])
 
-  const selectedWorkspace = workspaces.find((ws) => ws.id === selectedWorkspaceId)
-  const selectedAgent = selectedWorkspace?.agents.find((a) => a.id === selectedAgentId)
+  // Handle drop to create/modify split
+  const handleDrop = useCallback((position: DropPosition) => {
+    setIsDraggingTab(false)
+
+    if (!position || !draggedTabId) return
+
+    // Enable split pane and set orientation based on drop position
+    if (position === 'top' || position === 'bottom') {
+      setSplitPaneOrientation('vertical')
+      if (!splitPaneEnabled) {
+        toggleSplitPane()
+      }
+      // Assign the dragged tab to the appropriate pane
+      const targetPaneId = position === 'top' ? 'first' : 'second'
+      moveTabToPane(draggedTabId, targetPaneId)
+    } else if (position === 'left' || position === 'right') {
+      setSplitPaneOrientation('horizontal')
+      if (!splitPaneEnabled) {
+        toggleSplitPane()
+      }
+      // Assign the dragged tab to the appropriate pane
+      const targetPaneId = position === 'left' ? 'first' : 'second'
+      moveTabToPane(draggedTabId, targetPaneId)
+    }
+    // 'center' just activates the tab normally
+
+    setDraggedTabId(null)
+  }, [splitPaneEnabled, toggleSplitPane, setSplitPaneOrientation, draggedTabId, moveTabToPane])
+
+  const handleTabDragStart = useCallback((tabId: string) => {
+    setIsDraggingTab(true)
+    setDraggedTabId(tabId)
+  }, [])
+
+  const handleTabDragEnd = useCallback(() => {
+    setIsDraggingTab(false)
+    setDraggedTabId(null)
+  }, [])
 
   // Get active tab for rendering
   const activeTab = tabs.find((t) => t.id === activeTabId)
 
+  // Render content for a specific tab ID
+  const renderTabContent = useCallback((tabId: string | null) => {
+    if (!tabId) {
+      return <EmptyPanePlaceholder />
+    }
+
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab) {
+      return <EmptyPanePlaceholder />
+    }
+
+    if (tab.type === 'chat' && tab.conversationId && tab.agentId && tab.workspaceId) {
+      return (
+        <ChatTab
+          conversationId={tab.conversationId}
+          agentId={tab.agentId}
+          workspaceId={tab.workspaceId}
+        />
+      )
+    }
+
+    if (tab.type === 'workspace' && tab.workspaceId) {
+      const workspace = workspaces.find(w => w.id === tab.workspaceId)
+      if (workspace) {
+        return <WorkspaceOverview workspace={workspace} />
+      }
+    }
+
+    if (tab.type === 'file' && tab.filePath) {
+      return <FileViewer filePath={tab.filePath} />
+    }
+
+    return <EmptyPanePlaceholder />
+  }, [tabs, workspaces])
+
   // Determine what to show based on active tab or selection state
   const renderContent = () => {
-    // If there's an active tab, render based on tab type
-    if (activeTab) {
-      if (activeTab.type === 'file' && activeTab.filePath) {
-        return <FileViewer filePath={activeTab.filePath} />
+    // Split pane mode
+    if (splitPaneEnabled) {
+      return (
+        <SplitPaneContainer
+          firstPaneGroup={firstPaneGroup}
+          secondPaneGroup={secondPaneGroup}
+          activePaneId={activePaneId}
+          ratio={splitPaneRatio}
+          orientation={splitPaneOrientation}
+          onRatioChange={setSplitPaneRatio}
+          onRatioChangeEnd={saveSplitPaneSettings}
+          onSwap={swapSplitPanes}
+          onOrientationChange={setSplitPaneOrientation}
+          renderTabContent={renderTabContent}
+        />
+      )
+    }
+
+    // Single pane mode - content is determined by active tab only
+    // If there's an active chat tab, show chat
+    if (activeTab?.type === 'chat' && activeTab.conversationId && activeTab.agentId && activeTab.workspaceId) {
+      return (
+        <ChatTab
+          conversationId={activeTab.conversationId}
+          agentId={activeTab.agentId}
+          workspaceId={activeTab.workspaceId}
+        />
+      )
+    }
+
+    // If there's an active workspace tab, show workspace overview
+    if (activeTab?.type === 'workspace' && activeTab.workspaceId) {
+      const workspace = workspaces.find(w => w.id === activeTab.workspaceId)
+      if (workspace) {
+        return <WorkspaceOverview workspace={workspace} />
       }
-
-      if (activeTab.type === 'chat') {
-        // Find workspace and agent for the chat tab
-        const tabWorkspace = workspaces.find((ws) => ws.id === activeTab.workspaceId)
-        const tabAgent = tabWorkspace?.agents.find((a) => a.id === activeTab.agentId)
-
-        if (tabAgent && tabWorkspace) {
-          return <ChatView agent={tabAgent} workspace={tabWorkspace} />
-        }
-      }
     }
 
-    // Fallback to old behavior for backward compatibility
-    // File is selected - show file viewer
-    if (selectedFilePath) {
-      return <FileViewer filePath={selectedFilePath} />
+    // If there's an active file tab, show file viewer
+    if (activeTab?.type === 'file' && activeTab.filePath) {
+      return <FileViewer filePath={activeTab.filePath} />
     }
 
-    // Agent is selected - show chat view
-    if (selectedAgent && selectedWorkspace) {
-      return <ChatView agent={selectedAgent} workspace={selectedWorkspace} />
-    }
-
-    // Workspace is selected - show overview
-    if (selectedWorkspace) {
-      return <WorkspaceOverview workspace={selectedWorkspace} />
-    }
-
-    // Nothing selected - show welcome
+    // No active tab - show welcome view
     return <WelcomeView />
   }
 
@@ -105,11 +213,14 @@ export function MainPane() {
       {/* Draggable title bar area for macOS */}
       <div className="h-10 titlebar-drag-region flex-shrink-0 border-b border-default" />
 
-      {/* Tab Bar */}
-      <TabBar />
+      {/* Tab Bar - only shows file tabs */}
+      <TabBar onTabDragStart={handleTabDragStart} onTabDragEnd={handleTabDragEnd} />
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">{renderContent()}</div>
+      {/* Content with drop zone overlay */}
+      <div className="flex-1 overflow-hidden relative">
+        {renderContent()}
+        <DropZoneOverlay visible={isDraggingTab} onDrop={handleDrop} />
+      </div>
     </div>
   )
 }

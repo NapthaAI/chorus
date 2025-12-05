@@ -1,5 +1,13 @@
-import { useState, useEffect, useCallback, RefObject } from 'react'
+import { useState, useEffect, useCallback, RefObject, useMemo } from 'react'
 import getCaretCoordinates from 'textarea-caret'
+
+// Filter types
+type FilterType = 'extension' | 'path' | 'semantic'
+
+interface MentionFilter {
+  type: FilterType
+  value: string  // e.g., 'ts', 'src/', 'test'
+}
 
 interface MentionTriggerState {
   isOpen: boolean
@@ -10,10 +18,81 @@ interface MentionTriggerState {
 
 interface UseMentionTriggerResult {
   isOpen: boolean
-  query: string
+  query: string               // Full query after @
+  queryWithoutFilter: string  // Query with filter prefix removed
+  filter: MentionFilter | null
   triggerIndex: number
   position: { top: number; left: number }
   close: () => void
+}
+
+// Extension filter map
+const EXTENSION_FILTERS: Record<string, string[]> = {
+  ts: ['.ts', '.tsx'],
+  tsx: ['.tsx'],
+  js: ['.js', '.jsx'],
+  jsx: ['.jsx'],
+  css: ['.css', '.scss', '.sass', '.less'],
+  scss: ['.scss'],
+  md: ['.md', '.mdx'],
+  json: ['.json'],
+  yaml: ['.yaml', '.yml'],
+}
+
+// Semantic filter patterns
+const SEMANTIC_FILTERS = {
+  test: {
+    patterns: ['.test.', '.spec.', '__tests__/'],
+    extensions: ['.test.ts', '.test.tsx', '.test.js', '.spec.ts', '.spec.tsx', '.spec.js']
+  },
+  config: {
+    patterns: ['config', 'rc'],
+    extensions: ['.json', '.yaml', '.yml', '.toml']
+  }
+}
+
+// Parse filter from query
+function parseFilter(query: string): { filter: MentionFilter | null; rest: string } {
+  // Extension filters: @ts:, @js:, @css:, @md:, @json:, @yaml:
+  const extMatch = query.match(/^(ts|tsx|js|jsx|css|scss|md|json|yaml):(.*)/)
+  if (extMatch) {
+    return {
+      filter: { type: 'extension', value: extMatch[1] },
+      rest: extMatch[2]
+    }
+  }
+
+  // Semantic filters: @test:, @config:
+  const semanticMatch = query.match(/^(test|config):(.*)/)
+  if (semanticMatch) {
+    return {
+      filter: { type: 'semantic', value: semanticMatch[1] },
+      rest: semanticMatch[2]
+    }
+  }
+
+  // Path filters: @src/, @components/, @lib/utils/
+  // Match patterns like "dir/" or "dir/subdir/" at the start
+  const pathMatch = query.match(/^([a-zA-Z_][a-zA-Z0-9_.-]*\/)(.*)/)
+  if (pathMatch) {
+    // Check if this looks like a path filter (has more content after /)
+    // or if it ends with / (user is typing a path filter)
+    const potentialPath = pathMatch[1]
+    // Only treat as path filter if it's a common directory or explicit
+    const commonDirs = ['src/', 'lib/', 'components/', 'hooks/', 'stores/', 'utils/', 'services/', 'types/', 'tests/', 'test/']
+    if (commonDirs.includes(potentialPath) || query.includes('/')) {
+      // Extract full path prefix (everything up to and including last /)
+      const lastSlash = query.lastIndexOf('/')
+      if (lastSlash > 0) {
+        return {
+          filter: { type: 'path', value: query.slice(0, lastSlash + 1) },
+          rest: query.slice(lastSlash + 1)
+        }
+      }
+    }
+  }
+
+  return { filter: null, rest: query }
 }
 
 export function useMentionTrigger(
@@ -26,6 +105,15 @@ export function useMentionTrigger(
     triggerIndex: -1,
     position: { top: 0, left: 0 }
   })
+
+  // Parse filter from query
+  const { filter, queryWithoutFilter } = useMemo(() => {
+    if (!state.isOpen || !state.query) {
+      return { filter: null, queryWithoutFilter: '' }
+    }
+    const { filter, rest } = parseFilter(state.query)
+    return { filter, queryWithoutFilter: rest }
+  }, [state.isOpen, state.query])
 
   // Check if character is a word boundary
   const isWordBoundary = (char: string | undefined): boolean => {
@@ -64,40 +152,31 @@ export function useMentionTrigger(
   )
 
   // Calculate dropdown position
+  // Strategy: Position dropdown so its BOTTOM is just above the textarea.
+  // We set `top` to the textarea's top minus a gap, then use CSS transform
+  // translateY(-100%) in the dropdown component to anchor by bottom edge.
   const calculatePosition = useCallback(
     (triggerIndex: number): { top: number; left: number } => {
       const textarea = textareaRef.current
       if (!textarea) return { top: 0, left: 0 }
 
-      // Get caret coordinates at the @ position
-      const coords = getCaretCoordinates(textarea, triggerIndex)
       const rect = textarea.getBoundingClientRect()
+      const dropdownWidth = 320
+      const gap = 8
 
-      // Position below the @, with offset
-      let top = rect.top + coords.top + coords.height + 4
-      let left = rect.left + coords.left
+      // Position where the dropdown's BOTTOM should be (just above textarea)
+      // The dropdown component will use transform: translateY(-100%) to anchor by bottom
+      let top = rect.top - gap
+      let left = rect.left
 
       // Ensure dropdown doesn't go off-screen (right)
-      const dropdownWidth = 320
       if (left + dropdownWidth > window.innerWidth - 16) {
         left = window.innerWidth - dropdownWidth - 16
-      }
-
-      // Ensure dropdown doesn't go off-screen (bottom)
-      const dropdownHeight = 264 // max-h-64 = 16rem = 256px + padding
-      if (top + dropdownHeight > window.innerHeight - 16) {
-        // Position above the @ instead
-        top = rect.top + coords.top - dropdownHeight - 4
       }
 
       // Ensure dropdown doesn't go off-screen (left)
       if (left < 16) {
         left = 16
-      }
-
-      // Ensure dropdown doesn't go off-screen (top)
-      if (top < 16) {
-        top = 16
       }
 
       return { top, left }
@@ -150,8 +229,14 @@ export function useMentionTrigger(
   return {
     isOpen: state.isOpen,
     query: state.query,
+    queryWithoutFilter,
+    filter,
     triggerIndex: state.triggerIndex,
     position: state.position,
     close
   }
 }
+
+// Export filter types and utilities for use elsewhere
+export type { MentionFilter, FilterType }
+export { EXTENSION_FILTERS, SEMANTIC_FILTERS, parseFilter }

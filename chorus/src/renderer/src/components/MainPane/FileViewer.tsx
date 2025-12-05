@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Highlight, themes } from 'prism-react-renderer'
 import { MarkdownContent } from '../Chat/MarkdownContent'
+import { CodeEditor, getLanguageFromExtension } from '../Editor'
+import { useWorkspaceStore } from '../../stores/workspace-store'
 
 interface FileViewerProps {
   filePath: string
@@ -47,6 +48,8 @@ export function FileViewer({ filePath }: FileViewerProps) {
   const [editedContent, setEditedContent] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
+  const { markFileUnsaved, markFileSaved } = useWorkspaceStore()
+
   // Extract filename and extension
   const filename = filePath.split('/').pop() || ''
   const extension = filename.split('.').pop()?.toLowerCase() || ''
@@ -54,6 +57,22 @@ export function FileViewer({ filePath }: FileViewerProps) {
 
   // Check if content has been modified
   const hasChanges = editedContent !== null && editedContent !== content
+
+  // Track unsaved state in store
+  useEffect(() => {
+    if (hasChanges) {
+      markFileUnsaved(filePath)
+    } else {
+      markFileSaved(filePath)
+    }
+  }, [hasChanges, filePath, markFileUnsaved, markFileSaved])
+
+  // Clean up unsaved state when unmounting or switching files
+  useEffect(() => {
+    return () => {
+      markFileSaved(filePath)
+    }
+  }, [filePath, markFileSaved])
 
   useEffect(() => {
     setIsLoading(true)
@@ -105,8 +124,8 @@ export function FileViewer({ filePath }: FileViewerProps) {
     isFile: i === pathParts.length - 1
   }))
 
-  // Map extension to Prism language
-  const language = getLanguage(extension)
+  // Map extension to language for CodeMirror
+  const language = getLanguageFromExtension(extension)
 
   if (isLoading) {
     return (
@@ -149,19 +168,22 @@ export function FileViewer({ filePath }: FileViewerProps) {
           ))}
         </div>
 
-        {/* Mode toggle for markdown files */}
-        {isMarkdown && (
-          <div className="flex items-center gap-2">
-            {hasChanges && (
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-50"
-              >
-                <SaveIcon />
-                {isSaving ? 'Saving...' : 'Save'}
-              </button>
-            )}
+        {/* Actions: Save button (all files) + Mode toggle (markdown only) */}
+        <div className="flex items-center gap-2">
+          {/* Save button - shown for all files when there are changes */}
+          {hasChanges && (
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-50"
+            >
+              <SaveIcon />
+              {isSaving ? 'Saving...' : 'Save'}
+            </button>
+          )}
+
+          {/* Mode toggle - only for markdown files */}
+          {isMarkdown && (
             <div className="flex rounded-md overflow-hidden border border-default">
               <button
                 onClick={() => setMode('raw')}
@@ -184,85 +206,29 @@ export function FileViewer({ filePath }: FileViewerProps) {
                 Preview
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* File content */}
-      <div className="flex-1 overflow-auto">
-        {isMarkdown && mode === 'raw' ? (
-          // Raw editing mode for markdown
-          <textarea
-            value={editedContent ?? content ?? ''}
-            onChange={(e) => setEditedContent(e.target.value)}
-            className="w-full h-full p-4 font-mono text-sm bg-transparent text-primary resize-none focus:outline-none"
-            spellCheck={false}
-          />
-        ) : isMarkdown && mode === 'preview' ? (
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {isMarkdown && mode === 'preview' ? (
           // Preview mode for markdown
-          <div className="p-6">
+          <div className="p-6 overflow-auto h-full">
             <MarkdownContent content={content || ''} />
           </div>
         ) : (
-          // Syntax highlighting for non-markdown files
-          <Highlight theme={themes.vsDark} code={content || ''} language={language}>
-            {({ style, tokens, getLineProps, getTokenProps }) => (
-              <pre
-                className="code-block p-4 m-0 min-h-full"
-                style={{ ...style, background: 'transparent' }}
-              >
-                {tokens.map((line, i) => (
-                  <div key={i} {...getLineProps({ line })} className="table-row hover:bg-hover/30">
-                    <span className="table-cell pr-4 text-right text-muted select-none w-12 sticky left-0 bg-main">
-                      {i + 1}
-                    </span>
-                    <span className="table-cell">
-                      {line.map((token, key) => (
-                        <span key={key} {...getTokenProps({ token })} />
-                      ))}
-                    </span>
-                  </div>
-                ))}
-              </pre>
-            )}
-          </Highlight>
+          // CodeEditor for all files (including markdown in raw mode)
+          <div className="file-editor-container">
+            <CodeEditor
+              content={editedContent ?? content ?? ''}
+              language={language}
+              onChange={setEditedContent}
+              onSave={handleSave}
+            />
+          </div>
         )}
       </div>
     </div>
   )
-}
-
-function getLanguage(extension: string): string {
-  const languageMap: Record<string, string> = {
-    ts: 'typescript',
-    tsx: 'tsx',
-    js: 'javascript',
-    jsx: 'jsx',
-    json: 'json',
-    md: 'markdown',
-    css: 'css',
-    scss: 'scss',
-    html: 'html',
-    py: 'python',
-    yml: 'yaml',
-    yaml: 'yaml',
-    sh: 'bash',
-    bash: 'bash',
-    zsh: 'bash',
-    sql: 'sql',
-    graphql: 'graphql',
-    gql: 'graphql',
-    rs: 'rust',
-    go: 'go',
-    java: 'java',
-    kt: 'kotlin',
-    swift: 'swift',
-    rb: 'ruby',
-    php: 'php',
-    c: 'c',
-    cpp: 'cpp',
-    h: 'c',
-    hpp: 'cpp'
-  }
-  return languageMap[extension] || 'text'
 }
